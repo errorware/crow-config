@@ -1,0 +1,28 @@
+[plugin]
+name = "hosts"
+grammar = "hosts-line-grammar"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = true
+order_note = "On most systems, the first matching entry for a hostname wins — duplicate entries below the first are effectively dead."
+
+[[fields]]
+name = "address"
+type = "ip_address"
+required = true
+
+[[fields]]
+name = "hostnames"
+type = "string_list"
+required = true
+help = "First entry is the canonical hostname; the rest are aliases."
+
+[[fields]]
+name = "comment"
+type = "string"
+required = false
+
+[[validators]]
+command = "getent hosts {address}"
+description = "Confirms the address resolves as entered."

@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crow-config-core",
+    "crow-config-schemas",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Nelson <nelson@errorware.net>"]
+license = "LicenseRef-AEUPL-1.2"
+
+[workspace.dependencies]
+crow-config-core = { path = "crow-config-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+thiserror = "2.0"
+proptest = "1.6"

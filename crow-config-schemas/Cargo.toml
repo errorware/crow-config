@@ -1,0 +1,17 @@
+[package]
+name = "crow-config-schemas"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Authored plugin manifests and format-specific grammars for crow-config-core"
+
+[dependencies]
+crow-config-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

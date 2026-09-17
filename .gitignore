@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.swp
+*~
+.DS_Store
+
+# Internal documentation
+AGENTS.md
+CROW.md

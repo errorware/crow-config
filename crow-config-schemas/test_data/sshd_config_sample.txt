@@ -1,0 +1,22 @@
+# Package generated configuration file
+# See the sshd_config(5) manpage for details
+
+Port 2222
+#AddressFamily any
+#ListenAddress 0.0.0.0
+
+# Authentication:
+#LoginGraceTime 2m
+PermitRootLogin prohibit-password
+#StrictModes yes
+MaxAuthTries 3
+
+PubkeyAuthentication yes
+PasswordAuthentication = no
+KbdInteractiveAuthentication no
+
+X11Forwarding no # disable GUI tunneling
+#PrintMotd no
+
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server
