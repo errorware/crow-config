@@ -77,6 +77,8 @@ crow-config-core/
 | :--- | :--- | :---: | :---: | :--- |
 | `/etc/hosts` | `key_value_list` | Yes | N/A | `getent hosts {address}` |
 | `sshd_config` | `key_value_list` | No | Yes (`PermitRootLogin`, `PasswordAuthentication`, etc.) | `sshd -t -f {file}` |
+| `pg_hba.conf` | `rule_table` | Yes (First match wins) | Yes (`scram-sha-256`, `md5`, `trust`, `peer`, etc.) | `postgres --check-config` |
+| UFW rules | `rule_table` | Yes (First match wins) | Yes (`ALLOW`, `DENY`, `REJECT`, `LIMIT`) | `ufw --dry-run reload` |
 
 ---
 
@@ -130,6 +132,12 @@ cargo run --example dump_hosts_ir -p crow-config-schemas
 
 # Dump sshd_config IR with security risk ratings
 cargo run --example dump_sshd_ir -p crow-config-schemas
+
+# Dump pg_hba.conf rule table IR and test rule reordering
+cargo run --example dump_pg_hba_ir -p crow-config-schemas
+
+# Dump UFW rule table IR and test first-match priority reordering
+cargo run --example dump_ufw_ir -p crow-config-schemas
 ```
 
 ---

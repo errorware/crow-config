@@ -1,0 +1,8 @@
+# User Firewall Rules (UFW)
+# ACTION    DIRECTION  PROTO  FROM             TO               PORT   COMMENT
+
+LIMIT       in         tcp    any              any              22     # SSH rate limiting
+ALLOW       in         tcp    any              any              80     # HTTP
+ALLOW       in         tcp    any              any              443    # HTTPS
+DENY        in         any    192.168.1.200    any              any    # Block malicious IP
+ALLOW       out        udp    any              1.1.1.1          53     # Cloudflare DNS

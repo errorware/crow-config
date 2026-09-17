@@ -45,6 +45,11 @@ pub enum EditOp {
         after_row_id: Option<String>,
         fields: HashMap<String, serde_json::Value>,
     },
+    MoveRow {
+        row_id: String,
+        after_row_id: Option<String>,
+        before_row_id: Option<String>,
+    },
 }
 
 /// A format plugin capable of parsing raw text into a CST, binding CST to IR,

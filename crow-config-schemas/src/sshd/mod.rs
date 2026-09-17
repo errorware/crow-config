@@ -344,6 +344,67 @@ impl ConfigPlugin for SshdPlugin {
 
                 Ok(())
             }
+            EditOp::MoveRow {
+                row_id,
+                after_row_id,
+                before_row_id,
+            } => {
+                let src_line_no = parse_row_id_line(row_id)?;
+                let children = cst
+                    .children_mut()
+                    .ok_or_else(|| EditError::Unsupported("Root is not a rule".to_string()))?;
+
+                let mut current_line = 1;
+                let mut src_idx = None;
+                for (idx, line) in children.iter().enumerate() {
+                    let line_no = current_line;
+                    if line_no == src_line_no {
+                        src_idx = Some(idx);
+                        break;
+                    }
+                    let newlines = count_newlines_in_node(line);
+                    current_line += newlines.max(1);
+                }
+
+                let src_idx = src_idx.ok_or_else(|| EditError::RowNotFound(row_id.clone()))?;
+                let removed_node = children.remove(src_idx);
+
+                if let Some(before_id) = before_row_id {
+                    let before_line_no = parse_row_id_line(before_id)?;
+                    let mut current_line = 1;
+                    let mut insert_idx = None;
+                    for (idx, line) in children.iter().enumerate() {
+                        let line_no = current_line;
+                        if line_no == before_line_no {
+                            insert_idx = Some(idx);
+                            break;
+                        }
+                        let newlines = count_newlines_in_node(line);
+                        current_line += newlines.max(1);
+                    }
+                    let insert_idx = insert_idx.ok_or_else(|| EditError::RowNotFound(before_id.clone()))?;
+                    children.insert(insert_idx, removed_node);
+                } else if let Some(after_id) = after_row_id {
+                    let after_line_no = parse_row_id_line(after_id)?;
+                    let mut current_line = 1;
+                    let mut insert_idx = None;
+                    for (idx, line) in children.iter().enumerate() {
+                        let line_no = current_line;
+                        if line_no == after_line_no {
+                            insert_idx = Some(idx + 1);
+                            break;
+                        }
+                        let newlines = count_newlines_in_node(line);
+                        current_line += newlines.max(1);
+                    }
+                    let insert_idx = insert_idx.ok_or_else(|| EditError::RowNotFound(after_id.clone()))?;
+                    children.insert(insert_idx, removed_node);
+                } else {
+                    children.push(removed_node);
+                }
+
+                Ok(())
+            }
         }
     }
 }

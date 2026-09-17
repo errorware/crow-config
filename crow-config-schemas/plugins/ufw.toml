@@ -1,0 +1,66 @@
+[plugin]
+name = "ufw"
+grammar = "ufw-rule-grammar"
+
+[shape]
+kind = "rule_table"
+order_sensitive = true
+order_note = "Rules are evaluated in order from top to bottom; the first matching rule determines the action."
+
+[[fields]]
+name = "action"
+type = "enum"
+required = true
+help = "Firewall action to take when packet matches this rule."
+options = [
+  { value = "ALLOW", label = "Allow the connection", risk = "caution" },
+  { value = "DENY", label = "Silently drop the connection", risk = "recommended" },
+  { value = "REJECT", label = "Reject the connection with ICMP unreachable", risk = "recommended" },
+  { value = "LIMIT", label = "Rate-limit connections (max 6 attempts in 30s)", risk = "recommended" },
+]
+
+[[fields]]
+name = "direction"
+type = "enum"
+required = true
+options = [
+  { value = "in", label = "Incoming traffic" },
+  { value = "out", label = "Outgoing traffic" },
+]
+
+[[fields]]
+name = "proto"
+type = "enum"
+required = true
+options = [
+  { value = "tcp", label = "TCP protocol only" },
+  { value = "udp", label = "UDP protocol only" },
+  { value = "any", label = "Any protocol" },
+]
+
+[[fields]]
+name = "from"
+type = "string"
+required = true
+help = "Source IP address, CIDR subnet, or 'any'."
+
+[[fields]]
+name = "to"
+type = "string"
+required = true
+help = "Destination IP address, CIDR subnet, or 'any'."
+
+[[fields]]
+name = "port"
+type = "string"
+required = true
+help = "Destination port number, service name, or 'any'."
+
+[[fields]]
+name = "comment"
+type = "string"
+required = false
+
+[[validators]]
+command = "ufw --dry-run reload"
+description = "Verifies firewall rule syntax and reload validity without applying changes."

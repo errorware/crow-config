@@ -72,6 +72,10 @@ pub enum SyntaxKind {
 }
 
 impl SyntaxKind {
+    pub fn custom(name: impl Into<String>) -> Self {
+        Self::Custom(name.into())
+    }
+
     pub fn as_str(&self) -> &str {
         match self {
             Self::Document => "document",

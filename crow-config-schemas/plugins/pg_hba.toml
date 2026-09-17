@@ -1,0 +1,77 @@
+[plugin]
+name = "pg_hba"
+grammar = "tree-sitter-pg-hba"
+
+[shape]
+kind = "rule_table"
+order_sensitive = true
+order_note = "First match wins — rule order is evaluated top to bottom."
+
+[[fields]]
+name = "type"
+type = "enum"
+required = true
+help = "Connection type: local (Unix socket), host (TCP/IP), hostssl (SSL only), hostnossl (plain only), hostgssenc, hostnogssenc."
+options = [
+  { value = "local", label = "Unix-domain socket connections" },
+  { value = "host", label = "Plain or SSL/TLS TCP/IP connections" },
+  { value = "hostssl", label = "SSL/TLS TCP/IP connections only" },
+  { value = "hostnossl", label = "Non-SSL TCP/IP connections only" },
+  { value = "hostgssenc", label = "GSSAPI encrypted TCP/IP connections only" },
+  { value = "hostnogssenc", label = "Non-GSSAPI TCP/IP connections only" },
+]
+
+[[fields]]
+name = "database"
+type = "string"
+required = true
+help = "Specifies which database names this record matches ('all', 'sameuser', 'samerole', comma-separated list, or '@filename')."
+
+[[fields]]
+name = "user"
+type = "string"
+required = true
+help = "Specifies which database user names this record matches ('all', '+groupname', comma-separated list, or '@filename')."
+
+[[fields]]
+name = "address"
+type = "string"
+required = false
+help = "Client machine IP address or CIDR mask (not used for 'local' type)."
+
+[[fields]]
+name = "method"
+type = "enum"
+required = true
+docs_source = "man:pg_hba.conf(5)#auth-method"
+help = "Authentication method to use when a connection matches this record."
+options = [
+  { value = "scram-sha-256", label = "Salted challenge-response, password never in cleartext", risk = "recommended" },
+  { value = "md5", label = "Deprecated hash, replayable on the wire", risk = "weak" },
+  { value = "trust", label = "Any connection accepted with no password whatsoever", risk = "never_on_prod" },
+  { value = "reject", label = "Unconditionally rejects the connection", risk = "caution" },
+  { value = "password", label = "Sends password in cleartext over wire", risk = "never_on_prod" },
+  { value = "peer", label = "Obtain client operating system user name", risk = "recommended" },
+  { value = "cert", label = "Client SSL certificate authentication", risk = "recommended" },
+  { value = "gss", label = "GSSAPI authentication", risk = "recommended" },
+  { value = "sspi", label = "SSPI authentication (Windows)", risk = "recommended" },
+  { value = "ident", label = "Obtains operating system user name via ident server", risk = "weak" },
+  { value = "ldap", label = "LDAP server authentication", risk = "recommended" },
+  { value = "radius", label = "RADIUS server authentication", risk = "recommended" },
+  { value = "pam", label = "PAM authentication service", risk = "recommended" },
+]
+
+[[fields]]
+name = "options"
+type = "string"
+required = false
+help = "Optional authentication method options (e.g. clientcert=verify-full, ldapserver=...)."
+
+[[fields]]
+name = "comment"
+type = "string"
+required = false
+
+[[validators]]
+command = "postgres --check-config"
+description = "Validates PostgreSQL server configuration and HBA rules."
