@@ -10,12 +10,16 @@ order_note = "For each keyword, OpenSSH uses the first obtained value. Later dup
 [[fields]]
 name = "Port"
 type = "port"
+group = "Network & sessions"
+default = "22"
 required = false
 help = "Port on which the SSH daemon listens (default 22)."
 
 [[fields]]
 name = "PermitRootLogin"
 type = "enum"
+group = "Authentication"
+default = "prohibit-password"
 required = false
 docs_source = "man:sshd_config(5)#PermitRootLogin"
 help = "Specifies whether root can log in using ssh."
@@ -29,6 +33,8 @@ options = [
 [[fields]]
 name = "PasswordAuthentication"
 type = "enum"
+group = "Authentication"
+default = "yes"
 required = false
 docs_source = "man:sshd_config(5)#PasswordAuthentication"
 help = "Specifies whether password authentication is allowed."
@@ -40,6 +46,8 @@ options = [
 [[fields]]
 name = "PubkeyAuthentication"
 type = "enum"
+group = "Authentication"
+default = "yes"
 required = false
 docs_source = "man:sshd_config(5)#PubkeyAuthentication"
 help = "Specifies whether public key authentication is allowed."
@@ -51,6 +59,8 @@ options = [
 [[fields]]
 name = "KbdInteractiveAuthentication"
 type = "enum"
+group = "Authentication"
+default = "yes"
 required = false
 help = "Specifies whether keyboard-interactive authentication is allowed."
 options = [
@@ -61,6 +71,8 @@ options = [
 [[fields]]
 name = "X11Forwarding"
 type = "enum"
+group = "Features"
+default = "no"
 required = false
 docs_source = "man:sshd_config(5)#X11Forwarding"
 help = "Specifies whether X11 forwarding is permitted."
@@ -72,30 +84,40 @@ options = [
 [[fields]]
 name = "MaxAuthTries"
 type = "string"
+group = "Authentication"
+default = "6"
 required = false
 help = "Maximum number of authentication attempts permitted per connection."
 
 [[fields]]
 name = "AuthorizedKeysFile"
 type = "string"
+group = "Authentication"
+default = ".ssh/authorized_keys .ssh/authorized_keys2"
 required = false
 help = "File containing public keys for user authentication."
 
 [[fields]]
 name = "ClientAliveInterval"
 type = "string"
+group = "Network & sessions"
+default = "0"
 required = false
 help = "Timeout interval in seconds before sending alive probe."
 
 [[fields]]
 name = "ClientAliveCountMax"
 type = "string"
+group = "Network & sessions"
+default = "3"
 required = false
 help = "Number of alive probes without response before disconnecting."
 
 [[fields]]
 name = "LogLevel"
 type = "enum"
+group = "Logging"
+default = "INFO"
 required = false
 docs_source = "man:sshd_config(5)#LogLevel"
 options = [
@@ -108,34 +130,41 @@ options = [
 [[fields]]
 name = "AllowUsers"
 type = "string_list"
+group = "Access"
 required = false
 help = "Space-separated list of user names allowed to log in."
 
 [[fields]]
 name = "AllowGroups"
 type = "string_list"
+group = "Access"
 required = false
 help = "Space-separated list of group names allowed to log in."
 
 [[fields]]
 name = "DenyUsers"
 type = "string_list"
+group = "Access"
 required = false
 
 [[fields]]
 name = "DenyGroups"
 type = "string_list"
+group = "Access"
 required = false
 
 [[fields]]
 name = "Banner"
 type = "string"
+group = "Features"
+default = "none"
 required = false
 help = "Path to file containing message to display before authentication."
 
 [[fields]]
 name = "Subsystem"
 type = "string"
+group = "Features"
 required = false
 help = "Configures external subsystems (e.g. sftp)."
 

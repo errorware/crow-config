@@ -11,7 +11,7 @@ pub use ufw::{UfwPlugin, UFW_MANIFEST, UFW_MANIFEST_TOML};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crow_config_core::edit::{ConfigDocument, EditOp};
+    use crow_config_core::edit::{ConfigDocument, ConfigPlugin, EditOp};
     use crow_config_core::schema::RiskLevel;
     use proptest::prelude::*;
 
@@ -19,6 +19,26 @@ mod tests {
     const SAMPLE_SSHD: &str = include_str!("../test_data/sshd_config_sample.txt");
     const SAMPLE_PG_HBA: &str = include_str!("../test_data/pg_hba_sample.conf");
     const SAMPLE_UFW: &str = include_str!("../test_data/ufw_sample.rules");
+
+    /// Every sshd directive has a UI group, and the security-relevant ones
+    /// carry OpenSSH's built-in default so a UI can show effective values.
+    #[test]
+    fn sshd_fields_have_groups_and_defaults() {
+        let plugin = SshdPlugin::new();
+        let fields = &plugin.manifest().fields;
+        assert!(fields.iter().all(|f| f.group.is_some()), "every sshd field has a group");
+        let default = |name: &str| fields.iter().find(|f| f.name == name).and_then(|f| f.default.clone());
+        assert_eq!(default("PermitRootLogin").as_deref(), Some("prohibit-password"));
+        assert_eq!(default("PasswordAuthentication").as_deref(), Some("yes"));
+        assert_eq!(default("Port").as_deref(), Some("22"));
+        assert_eq!(default("AllowUsers"), None, "no default: unset means everyone");
+        // An enum's default is one of its options.
+        for f in fields.iter().filter(|f| f.options.is_some()) {
+            if let Some(d) = &f.default {
+                assert!(f.options.as_ref().unwrap().iter().any(|o| &o.value == d), "{}: default {d} is an option", f.name);
+            }
+        }
+    }
 
     // ==========================================
     // /etc/hosts Tests

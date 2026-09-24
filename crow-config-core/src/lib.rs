@@ -147,6 +147,8 @@ command = "postgres --check-config"
             help: None,
             docs_source: None,
             options: None,
+            group: None,
+            default: None,
         };
 
         assert!(validate_field_value(&ip_field, &serde_json::json!("10.0.4.12")).is_ok());

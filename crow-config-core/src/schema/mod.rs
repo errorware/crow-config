@@ -76,6 +76,14 @@ pub struct FieldDef {
     pub docs_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<Vec<EnumOption>>,
+    /// Section a UI lists this field under (e.g. "Authentication"). Fields
+    /// without one go under a catch-all section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// The value the program uses when the field isn't set in the file, so
+    /// a UI can show the effective setting (e.g. OpenSSH's defaults).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
 }
 
 /// External validation command specification.
