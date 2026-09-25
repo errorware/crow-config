@@ -1,6 +1,7 @@
 [plugin]
 name = "sshd_config"
 grammar = "sshd-line-grammar"
+category = "config.format"
 
 [shape]
 kind = "key_value_list"
