@@ -28,6 +28,71 @@ Licensed under AEUPL-1.2 (see `LICENSE`): free for non-commercial use; commercia
 - **Resilient & Panic-Free**: Designed for production servers. Malformed syntax, unexpected tokens, or truncated inputs never panic; errors are captured into structured nodes and round-tripped losslessly.
 - **Semantic Schemas & Risk Metadata**: TOML plugin manifests define field types, validation rules, man-page documentation anchors, and risk ratings (`recommended`, `caution`, `weak`, `never_on_prod`) for dangerous security settings.
 - **View-Binding Intermediate Representation (IR)**: Emits a generic intermediate representation with widget kinds (`key_value_list`, `rule_table`, `block_tree`, `toggle_panel`), source spans, and validation states.
+- **Settings without a file**: the same manifests describe settings that live in a host app's store (an API token, a default region). `SettingsDocument` renders them as the same IR, validates every edit and hands back changes for the app to persist.
+- **Secrets that don't leak**: a `secret` field type and `SecretValue`, which print and serialize as `[secret]`, are wiped from memory on drop and never appear in IR or error messages.
+- **Plugin kinds, categories and requirements**: plugins declare what they are (`config`, `provider`, `module`), which contract they implement (`provider.hosts`, `provider.dns`, …) and what they can do; modules declare what they need, and `satisfies()` says whether it's there.
+
+---
+
+## Plugins: Kinds, Categories, Capabilities
+
+```toml
+[plugin]
+name = "linode"
+display_name = "Linode"
+kind = "provider"                 # config (default) | provider | module
+category = "provider.hosts"       # the contract it implements
+capabilities = ["instances.list", "instances.power", "snapshots"]
+
+[[settings]]                      # same as [[fields]], for settings stores
+key = "api_token"
+label = "API token"
+type = "secret"
+required = true
+```
+
+- **A category is a contract**: every plugin in `provider.dns` implements the same interface, so anything built on the category works with each of them. Well-known categories and their capability vocabularies are in `crow_config_core::categories`.
+- **Capabilities** say which parts of the contract a plugin supports; hosts offer only those actions.
+- **Modules** don't name providers. They declare requirements on categories, and stay inactive until they're met:
+
+```toml
+[plugin]
+name = "paas"
+kind = "module"
+
+[[requires]]
+category = "provider.dns"
+capabilities = ["records.write"]
+min = 1
+```
+
+```rust
+match crow_config_core::satisfies(&module.requires, installed.iter()) {
+    Ok(()) => { /* the module can run */ }
+    Err(missing) => for m in missing { println!("{m}") }, // "needs 1 provider.dns plugin with records.write (found 0; bunny lacks records.write)"
+}
+```
+
+Old manifests keep working: every new key is optional, and `kind` defaults to `config`.
+
+## Settings Without a File, and Secrets
+
+```rust
+use crow_config_core::{SecretValue, SettingsChange, SettingsDocument, SettingsEdit};
+
+// Values from the host app's store; secrets are only known to be set or not.
+let mut doc = SettingsDocument::new(&manifest, stored_values, ["api_token".to_string()]);
+let ir = doc.to_ir(); // the same IR a file produces; secrets appear as {"set": true}
+
+match doc.apply(SettingsEdit::SetSecret { key: "api_token".into(), value: SecretValue::new(token) })? {
+    SettingsChange::StoreSecret { key, value } => vault.store(&key, value.expose()), // the only place the value is read
+    other => store.persist(other),
+}
+```
+
+The core does no I/O: the host app persists what comes back. A secret can only be set through `SetSecret`, never as plain JSON, and a document never keeps a secret's value.
+
+Field types include `integer`, with optional `min` / `max` bounds, alongside `ip_address`, `cidr`, `port`, `bool`, `enum`, `string`, `string_list`, `path` and `secret`.
 
 ---
 
@@ -38,6 +103,7 @@ crow-config-core/
 ├── Cargo.toml                         # Workspace definition
 ├── LICENSE                            # AEUPL-1.2 License
 ├── README.md
+├── crow-config/                       # Umbrella crate: re-exports core + schemas
 ├── crow-config-core/                  # Core engine (grammar abstractions, schema types, IR, edit primitives)
 │   ├── Cargo.toml
 │   └── src/
@@ -45,18 +111,21 @@ crow-config-core/
 │       ├── cst/mod.rs                 # Lossless Concrete Syntax Tree
 │       ├── schema/mod.rs              # Plugin manifests, field types, risk levels, validators
 │       ├── ir/mod.rs                  # View-Binding IR model
-│       └── edit/mod.rs                # Mutation engine (ConfigDocument, EditOp)
+│       ├── edit/mod.rs                # Mutation engine (ConfigDocument, EditOp)
+│       ├── plugin.rs                  # Kinds, categories, capabilities, requirements, satisfies()
+│       ├── secret.rs                  # SecretValue: redacted, wiped on drop
+│       └── store.rs                   # SettingsDocument: settings bound to a host app's store
 └── crow-config-schemas/               # Authored plugins, format grammars & tests
     ├── Cargo.toml
-    ├── plugins/
-    │   ├── hosts.toml                 # /etc/hosts manifest
-    │   └── sshd_config.toml           # OpenSSH daemon manifest with risk ratings
+    ├── plugins/                       # hosts, sshd_config, pg_hba, ufw manifests (category config.format)
     ├── test_data/                     # Real-world test configurations
     ├── examples/                      # Diagnostic IR inspection tools
     └── src/
         ├── lib.rs
         ├── hosts/mod.rs               # /etc/hosts line grammar, binder & tests
-        └── sshd/mod.rs                # sshd_config grammar, binder & tests
+        ├── sshd/mod.rs                # sshd_config grammar, binder & tests
+        ├── pg_hba/mod.rs              # pg_hba.conf rule table
+        └── ufw/mod.rs                 # ufw user.rules rule table
 ```
 
 ---
