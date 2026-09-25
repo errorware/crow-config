@@ -4,6 +4,21 @@ A standalone Rust engine that transforms arbitrary line/block-oriented Linux con
 
 Zero UI dependencies. Zero filesystem side effects. Pure in-memory transformation.
 
+## Crates
+
+| Crate | What it is |
+|---|---|
+| [`crow-config`](https://crates.io/crates/crow-config) | Start here: the engine plus all format plugins, re-exported |
+| [`crow-config-core`](https://crates.io/crates/crow-config-core) | The engine: lossless CST, schema types, view-binding IR, edits |
+| [`crow-config-schemas`](https://crates.io/crates/crow-config-schemas) | Format plugins: `/etc/hosts`, `sshd_config`, `pg_hba.conf`, ufw rules |
+
+```toml
+[dependencies]
+crow-config = "0.1"
+```
+
+Licensed under AEUPL-1.2 (see `LICENSE`): free for non-commercial use; commercial use needs the author's permission.
+
 ---
 
 ## Key Features

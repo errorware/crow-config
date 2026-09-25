@@ -1,5 +1,5 @@
 [package]
-name = "crow-config-core"
+name = "crow-config"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,13 +10,8 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-description = "Core engine for turning line/block config files into a lossless CST and generic UI IR"
+description = "Lossless, schema-driven editing of Linux config files (/etc/hosts, sshd_config, pg_hba.conf, ufw): the engine plus its format plugins"
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
-toml.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
-proptest.workspace = true
+crow-config-core.workspace = true
+crow-config-schemas.workspace = true

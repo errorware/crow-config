@@ -3,7 +3,13 @@ name = "crow-config-schemas"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-license.workspace = true
+license-file.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 description = "Authored plugin manifests and format-specific grammars for crow-config-core"
 
 [dependencies]

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crow-config",
     "crow-config-core",
     "crow-config-schemas",
 ]
@@ -9,10 +10,18 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 authors = ["Nelson <nelson@errorware.net>"]
-license = "LicenseRef-AEUPL-1.2"
+# AEUPL-1.2 isn't an SPDX identifier, so crates.io takes the licence text itself.
+license-file = "LICENSE"
+readme = "README.md"
+homepage = "https://crow.rs"
+repository = "https://github.com/errorware/crow-config"
+keywords = ["config", "parser", "lossless", "sshd", "sysadmin"]
+categories = ["config", "parser-implementations"]
+rust-version = "1.85"
 
 [workspace.dependencies]
-crow-config-core = { path = "crow-config-core" }
+crow-config-core = { path = "crow-config-core", version = "0.1.0" }
+crow-config-schemas = { path = "crow-config-schemas", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
