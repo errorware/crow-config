@@ -156,7 +156,18 @@ command = "postgres --check-config"
             options: None,
             group: None,
             default: None,
+            min: None,
+            max: None,
         };
+
+        assert!(validate_field_value(&ip_field, &serde_json::json!("10.0.4.12")).is_ok());
+        let minutes = FieldDef { name: "minutes".into(), field_type: FieldType::Integer, min: Some(0), max: Some(1440), ..ip_field.clone() };
+        assert!(validate_field_value(&minutes, &serde_json::json!(15)).is_ok());
+        assert!(validate_field_value(&minutes, &serde_json::json!("30")).is_ok(), "numbers typed as text count");
+        assert_eq!(validate_field_value(&minutes, &serde_json::json!(-1)).unwrap_err(), "Field 'minutes' must be at least 0");
+        assert_eq!(validate_field_value(&minutes, &serde_json::json!(2000)).unwrap_err(), "Field 'minutes' must be at most 1440");
+        assert!(validate_field_value(&minutes, &serde_json::json!("soon")).is_err());
+        assert_eq!(PluginManifest::from_toml_str("[plugin]\nname = \"x\"\ngrammar = \"g\"\n[[fields]]\nname = \"n\"\ntype = \"integer\"\nmin = 1\n").unwrap().fields[0].field_type, FieldType::Integer);
 
         assert!(validate_field_value(&ip_field, &serde_json::json!("10.0.4.12")).is_ok());
         assert!(validate_field_value(&ip_field, &serde_json::json!("::1")).is_ok());

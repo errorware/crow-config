@@ -39,6 +39,8 @@ pub enum FieldType {
     Bool,
     Path,
     Port,
+    /// A whole number, optionally bounded by the field's `min` / `max`.
+    Integer,
     /// A credential (API token, password). Its value never appears in IR,
     /// `Debug` output, serialized edits or error messages; see
     /// [`crate::secret`].
@@ -96,6 +98,11 @@ pub struct FieldDef {
     /// a UI can show the effective setting (e.g. OpenSSH's defaults).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
+    /// Bounds for `integer` fields, inclusive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
 }
 
 /// External validation command specification.
@@ -315,6 +322,18 @@ pub fn validate_field_value(field_def: &FieldDef, value: &serde_json::Value) -> 
                         s, field_def.name, valid_vals
                     ));
                 }
+            }
+        }
+        FieldType::Integer => {
+            let n = value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()))
+                .ok_or_else(|| format!("Field '{}' must be a whole number", field_def.name))?;
+            if let Some(min) = field_def.min.filter(|m| n < *m) {
+                return Err(format!("Field '{}' must be at least {min}", field_def.name));
+            }
+            if let Some(max) = field_def.max.filter(|m| n > *m) {
+                return Err(format!("Field '{}' must be at most {max}", field_def.name));
             }
         }
         FieldType::Secret => {
