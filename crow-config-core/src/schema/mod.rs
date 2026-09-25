@@ -128,6 +128,9 @@ impl ValidatorDef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginMeta {
     pub name: String,
+    /// How the plugin is named to people ("UpCloud" for `upcloud`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// The file grammar. Config plugins have one; providers and modules,
     /// whose settings live in the host app's store, don't.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -185,6 +188,11 @@ impl PluginManifest {
 
     pub fn find_field(&self, name: &str) -> Option<&FieldDef> {
         self.fields.iter().find(|f| f.name == name)
+    }
+
+    /// The display name, else the plugin name.
+    pub fn display_name(&self) -> &str {
+        self.plugin.display_name.as_deref().unwrap_or(&self.plugin.name)
     }
 
     pub fn has_capability(&self, capability: &str) -> bool {
