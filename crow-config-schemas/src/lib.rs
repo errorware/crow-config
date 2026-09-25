@@ -20,6 +20,17 @@ mod tests {
     const SAMPLE_PG_HBA: &str = include_str!("../test_data/pg_hba_sample.conf");
     const SAMPLE_UFW: &str = include_str!("../test_data/ufw_sample.rules");
 
+    /// Every shipped manifest is a valid config-format plugin.
+    #[test]
+    fn shipped_manifests_declare_the_config_format_category() {
+        use crow_config_core::{categories, PluginKind};
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST] {
+            assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
+            assert_eq!(m.plugin.kind, PluginKind::Config);
+            assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
+        }
+    }
+
     /// Every sshd directive has a UI group, and the security-relevant ones
     /// carry OpenSSH's built-in default so a UI can show effective values.
     #[test]

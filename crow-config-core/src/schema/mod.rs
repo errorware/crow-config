@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
+use crate::secret::SecretValue;
+use crate::plugin::{categories, is_valid_category, ManifestError, PluginKind, Requirement};
+
 /// High-level generic widget kinds that a config format can request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +39,10 @@ pub enum FieldType {
     Bool,
     Path,
     Port,
+    /// A credential (API token, password). Its value never appears in IR,
+    /// `Debug` output, serialized edits or error messages; see
+    /// [`crate::secret`].
+    Secret,
     #[serde(untagged)]
     Other(std::borrow::Cow<'static, str>),
 }
@@ -65,7 +72,12 @@ pub struct EnumOption {
 /// Field definition within a plugin manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldDef {
+    /// The field's key. Settings manifests may call it `key`.
+    #[serde(alias = "key")]
     pub name: String,
+    /// A human name for the field, where the key isn't one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(rename = "type")]
     pub field_type: FieldType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,9 +121,24 @@ impl ValidatorDef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginMeta {
     pub name: String,
-    pub grammar: String,
+    /// The file grammar. Config plugins have one; providers and modules,
+    /// whose settings live in the host app's store, don't.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grammar: Option<String>,
+    #[serde(default)]
+    pub kind: PluginKind,
+    /// The contract the plugin implements (e.g. `provider.dns`); see
+    /// [`crate::plugin::categories`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Which parts of the category's contract the plugin supports. Hosts
+    /// offer only the actions a plugin declares here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
 }
 
+/// How a UI lays out the document. Settings manifests can leave it out and
+/// get a plain key/value list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShapeMeta {
     pub kind: WidgetKind,
@@ -121,15 +148,27 @@ pub struct ShapeMeta {
     pub order_note: Option<String>,
 }
 
+impl Default for ShapeMeta {
+    fn default() -> Self {
+        Self { kind: WidgetKind::KeyValueList, order_sensitive: false, order_note: None }
+    }
+}
+
 /// A complete plugin manifest describing format schema, shape, and validation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginManifest {
     pub plugin: PluginMeta,
-    pub shape: ShapeMeta,
     #[serde(default)]
+    pub shape: ShapeMeta,
+    /// The fields. Settings manifests (providers, modules) write them as
+    /// `[[settings]]`.
+    #[serde(default, alias = "settings")]
     pub fields: Vec<FieldDef>,
     #[serde(default)]
     pub validators: Vec<ValidatorDef>,
+    /// What a module needs from other plugins; see [`crate::plugin::satisfies`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<Requirement>,
 }
 
 impl PluginManifest {
@@ -140,6 +179,52 @@ impl PluginManifest {
     pub fn find_field(&self, name: &str) -> Option<&FieldDef> {
         self.fields.iter().find(|f| f.name == name)
     }
+
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.plugin.capabilities.iter().any(|c| c == capability)
+    }
+
+    /// Checks the plugin declaration: kind, grammar, category, requirements.
+    pub fn validate(&self) -> Result<(), Vec<ManifestError>> {
+        let (name, meta) = (&self.plugin.name, &self.plugin);
+        let mut errors = Vec::new();
+        match meta.kind {
+            PluginKind::Config if meta.grammar.is_none() => errors.push(ManifestError::MissingGrammar(name.clone())),
+            PluginKind::Provider if meta.category.is_none() => errors.push(ManifestError::MissingCategory(name.clone())),
+            PluginKind::Module if self.requires.is_empty() => errors.push(ManifestError::ModuleWithoutRequirements(name.clone())),
+            _ => {}
+        }
+        if let Some(c) = meta.category.as_ref().filter(|c| !is_valid_category(c)) {
+            errors.push(ManifestError::BadCategory(c.clone()));
+        }
+        if meta.kind != PluginKind::Module && !self.requires.is_empty() {
+            errors.push(ManifestError::RequirementsOnNonModule(name.clone(), meta.kind));
+        }
+        errors.extend(self.requires.iter().filter(|r| r.min == 0).map(|r| ManifestError::ZeroMin(r.category.clone())));
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
+    }
+
+    /// Declared capabilities that the plugin's (well-known) category doesn't
+    /// define. They're allowed, but usually a typo.
+    pub fn unknown_capabilities(&self) -> Vec<&str> {
+        let Some(known) = self.plugin.category.as_deref().and_then(categories::capabilities) else { return Vec::new() };
+        self.plugin.capabilities.iter().map(String::as_str).filter(|c| !known.contains(c)).collect()
+    }
+}
+
+/// Validates a secret. Error messages name the field, never the value.
+pub fn validate_secret(field_def: &FieldDef, value: &SecretValue) -> Result<(), String> {
+    check_secret(field_def, value.expose())
+}
+
+fn check_secret(field_def: &FieldDef, s: &str) -> Result<(), String> {
+    if s.is_empty() && field_def.required == Some(true) {
+        return Err(format!("Field '{}' can't be empty", field_def.name));
+    }
+    if s.chars().any(char::is_control) {
+        return Err(format!("Field '{}' contains control characters (a stray line break?)", field_def.name));
+    }
+    Ok(())
 }
 
 /// Validates a candidate value against its field definition.
@@ -231,6 +316,10 @@ pub fn validate_field_value(field_def: &FieldDef, value: &serde_json::Value) -> 
                     ));
                 }
             }
+        }
+        FieldType::Secret => {
+            let s = value.as_str().ok_or_else(|| format!("Field '{}' must be text", field_def.name))?;
+            check_secret(field_def, s)?;
         }
         FieldType::String | FieldType::Path | FieldType::Other(_) => {
             if !value.is_string() {

@@ -1,6 +1,7 @@
 [plugin]
 name = "ufw"
 grammar = "ufw-rule-grammar"
+category = "config.format"
 
 [shape]
 kind = "rule_table"

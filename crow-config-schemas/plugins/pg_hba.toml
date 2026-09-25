@@ -1,6 +1,7 @@
 [plugin]
 name = "pg_hba"
 grammar = "tree-sitter-pg-hba"
+category = "config.format"
 
 [shape]
 kind = "rule_table"

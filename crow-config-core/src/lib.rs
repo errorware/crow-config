@@ -1,13 +1,19 @@
 pub mod cst;
 pub mod edit;
 pub mod ir;
+pub mod plugin;
 pub mod schema;
+pub mod secret;
+pub mod store;
 
 pub use cst::{CstNode, SourceSpan, Span, SyntaxKind};
 pub use edit::{BindError, ConfigDocument, ConfigPlugin, EditError, EditOp, ParseError};
 pub use ir::{ConfigDocumentIr, FieldIr, RowIr, ShapeIr};
+pub use plugin::{candidates, categories, satisfies, ManifestError, Missing, NearMiss, PluginKind, Requirement};
+pub use secret::SecretValue;
+pub use store::{SettingsChange, SettingsDocument, SettingsEdit};
 pub use schema::{
-    validate_field_value, EnumOption, FieldDef, FieldType, PluginManifest, PluginMeta, RiskLevel,
+    validate_field_value, validate_secret, EnumOption, FieldDef, FieldType, PluginManifest, PluginMeta, RiskLevel,
     ShapeMeta, ValidatorDef, WidgetKind,
 };
 
@@ -143,6 +149,7 @@ command = "postgres --check-config"
         let ip_field = FieldDef {
             name: "address".to_string(),
             field_type: FieldType::IpAddress,
+            label: None,
             required: Some(true),
             help: None,
             docs_source: None,
