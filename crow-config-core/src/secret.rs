@@ -10,6 +10,7 @@
 //! is set (see [`secret_state`]).
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zeroize::Zeroize;
 
 /// What secrets print as, everywhere.
 pub const REDACTED: &str = "[secret]";
@@ -64,8 +65,7 @@ impl<'de> Deserialize<'de> for SecretValue {
 impl Drop for SecretValue {
     /// Overwrites the bytes before the memory is freed.
     fn drop(&mut self) {
-        // SAFETY: zeroes stay valid UTF-8.
-        unsafe { self.0.as_bytes_mut() }.iter_mut().for_each(|b| unsafe { std::ptr::write_volatile(b, 0) });
+        self.0.zeroize();
     }
 }
 
