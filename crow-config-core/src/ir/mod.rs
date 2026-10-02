@@ -44,6 +44,16 @@ pub struct RowIr {
     pub is_comment_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_blank: Option<bool>,
+    /// The conditional block this row belongs to, for formats that have
+    /// them: e.g. sshd's `Match User deploy` (`"User deploy"`). `None` is
+    /// global. A block's own opening line carries its scope too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// For an include directive (sshd's `Include`): the paths or globs it
+    /// pulls in. The engine never reads them; the host app fetches and
+    /// parses them through its own file access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include: Option<Vec<String>>,
 }
 
 impl RowIr {
@@ -55,6 +65,8 @@ impl RowIr {
             source_span: span,
             is_comment_only: None,
             is_blank: None,
+            scope: None,
+            include: None,
         }
     }
 

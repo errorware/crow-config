@@ -45,6 +45,9 @@ impl ConfigPlugin for SshdPlugin {
     fn to_ir(&self, cst: &CstNode) -> Result<ConfigDocumentIr, BindError> {
         let mut rows = Vec::new();
         let mut current_line = 1;
+        // sshd: every directive after a `Match` line belongs to that block,
+        // up to the next `Match` (there's no end marker).
+        let mut scope: Option<String> = None;
 
         for line_node in cst.children() {
             let line_no = current_line;
@@ -82,6 +85,17 @@ impl ConfigPlugin for SshdPlugin {
                         _ => {}
                     }
                 }
+
+                if let (Some(key), Some(val)) = (&key_str, &val_str) {
+                    if key.eq_ignore_ascii_case("match") {
+                        scope = Some(val.trim().to_string());
+                        row.widget = "scope_row".into();
+                    } else if key.eq_ignore_ascii_case("include") {
+                        row.include = Some(val.split_whitespace().map(str::to_string).collect());
+                        row.widget = "include_row".into();
+                    }
+                }
+                row.scope = scope.clone();
 
                 if let (Some(key), Some(val)) = (key_str, val_str) {
                     // Match field in manifest case-insensitively
