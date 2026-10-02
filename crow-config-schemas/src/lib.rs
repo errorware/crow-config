@@ -193,6 +193,47 @@ mod tests {
     // sshd_config Tests
     // ==========================================
 
+    /// A stock Ubuntu sshd_config's shape: an Include at the top, globals,
+    /// then Match blocks (ERR-12).
+    const SSHD_WITH_SCOPES: &str = "Include /etc/ssh/sshd_config.d/*.conf\n\nPort 22\nPermitRootLogin no\n\n# deploy may use a password\nMatch User deploy\n\tPasswordAuthentication yes\n\tPermitRootLogin yes\nMatch Address 10.0.0.0/8,192.168.0.0/16\n    X11Forwarding yes\n";
+
+    #[test]
+    fn sshd_rows_carry_their_match_scope() {
+        let plugin = SshdPlugin::new();
+        let ir = ConfigDocument::parse(&plugin, SSHD_WITH_SCOPES).unwrap().to_ir().unwrap();
+        let by_key = |k: &str| ir.rows.iter().filter(|r| r.fields.first().is_some_and(|f| f.name.eq_ignore_ascii_case(k))).collect::<Vec<_>>();
+        let root = by_key("PermitRootLogin");
+        assert_eq!(root[0].scope, None, "the global one");
+        assert_eq!(root[1].scope.as_deref(), Some("User deploy"), "not a global never-on-prod value");
+        assert_eq!(by_key("PasswordAuthentication")[0].scope.as_deref(), Some("User deploy"));
+        assert_eq!(by_key("X11Forwarding")[0].scope.as_deref(), Some("Address 10.0.0.0/8,192.168.0.0/16"));
+        let matches = by_key("Match");
+        assert_eq!(matches.len(), 2);
+        assert!(matches.iter().all(|m| m.widget == "scope_row"));
+        assert_eq!(matches[0].scope.as_deref(), Some("User deploy"), "a block's opening line carries its scope");
+        assert_eq!(by_key("Port")[0].scope, None);
+    }
+
+    #[test]
+    fn sshd_include_rows_expose_their_globs() {
+        let plugin = SshdPlugin::new();
+        let ir = ConfigDocument::parse(&plugin, "Include /etc/ssh/sshd_config.d/*.conf /etc/ssh/extra.conf\nPort 22\n").unwrap().to_ir().unwrap();
+        assert_eq!(ir.rows[0].widget, "include_row");
+        assert_eq!(ir.rows[0].include.as_deref(), Some(&["/etc/ssh/sshd_config.d/*.conf".to_string(), "/etc/ssh/extra.conf".to_string()][..]));
+        assert_eq!(ir.rows[1].include, None);
+    }
+
+    #[test]
+    fn sshd_scoped_configs_round_trip_and_edit_in_place() {
+        let plugin = SshdPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SSHD_WITH_SCOPES).unwrap();
+        assert_eq!(doc.serialize(), SSHD_WITH_SCOPES, "lossless");
+        let ir = doc.to_ir().unwrap();
+        let scoped = ir.rows.iter().find(|r| r.scope.as_deref() == Some("User deploy") && r.fields.first().is_some_and(|f| f.name == "PermitRootLogin")).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: scoped.row_id.clone(), field_name: "PermitRootLogin".into(), new_value: serde_json::json!("no") }).unwrap();
+        assert_eq!(doc.serialize(), SSHD_WITH_SCOPES.replace("\tPermitRootLogin yes", "\tPermitRootLogin no"), "only that line changed");
+    }
+
     #[test]
     fn test_sshd_config_lossless_roundtrip() {
         let plugin = SshdPlugin::new();
