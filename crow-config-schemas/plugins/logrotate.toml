@@ -1,0 +1,23 @@
+[plugin]
+name = "logrotate"
+grammar = "logrotate-line-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = false
+
+[[fields]]
+name = "logs"
+type = "string"
+required = true
+help = "The log files a block applies to: paths or globs, separated by spaces."
+
+# logrotate refuses configuration files that aren't owned by root, so the
+# file is checked from a root-owned copy. -d is a dry run: nothing rotates.
+# Only mistakes in the configuration fail the check (logrotate reports them
+# as "error: <file>:<line> ..."); complaints about the log files themselves
+# (missing, unreadable) aren't the file's fault.
+[[validators]]
+command = '''sh -c 'c="$1.lr"; cp "$1" "$c" && chown 0:0 "$c" && chmod 0644 "$c" || exit 1; out=$(logrotate -d "$c" 2>&1); rm -f "$c"; bad=$(printf "%s\n" "$out" | grep -E "^error: [^ ]+:[0-9]+ "); [ -z "$bad" ] || { printf "%s\n" "$bad" >&2; exit 1; }' crow-logrotate {file}'''
+description = "logrotate's own dry run (-d): parses the file, rotates nothing."
