@@ -377,7 +377,9 @@ fn parse_entry(text: &str, base: usize) -> CstNode {
                 loop {
                     who_end = word_end(who_end);
                     let next = ws_end(who_end);
-                    if text[lead..who_end].ends_with(',') && next < body_end {
+                    // Only on progress: a ',' right before a '\' would
+                    // otherwise loop forever.
+                    if text[lead..who_end].ends_with(',') && next < body_end && next > who_end {
                         who_end = next;
                         continue;
                     }

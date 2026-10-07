@@ -523,6 +523,18 @@ mod tests {
     }
 
     #[test]
+    fn sysctl_known_keys_explain_themselves_and_offer_values() {
+        let ir = ConfigDocument::parse(&SysctlPlugin::new(), "kernel.randomize_va_space = 0\nnet/ipv4/conf/all/rp_filter = 1\nvm.swappiness = 10\nmade.up = 1\n").unwrap().to_ir().unwrap();
+        let value = |i: usize| ir.rows[i].get_field("value").unwrap();
+        let aslr = value(0).options.as_ref().unwrap();
+        assert_eq!(aslr.iter().find(|o| o.value == "0").unwrap().risk, Some(RiskLevel::NeverOnProd));
+        assert!(value(0).help.as_deref().unwrap().contains("ASLR"));
+        assert!(value(1).options.is_some(), "slash form is recognised");
+        assert!(value(2).options.is_none() && value(2).help.is_some(), "a number: explained, typed freely");
+        assert!(value(3).options.is_none() && value(3).help.is_none());
+    }
+
+    #[test]
     fn sysctl_insert_delete_and_move() {
         let plugin = SysctlPlugin::new();
         // No newline at the end: an appended line must still start on its own.
@@ -627,6 +639,18 @@ mod tests {
         assert!(doc.serialize().starts_with("deploy "));
         doc.apply_edit(&EditOp::DeleteRow { row_id: "line-1".into() }).unwrap();
         assert_eq!(doc.serialize(), "root ALL=(ALL) ALL\n%sudo ALL=(ALL) ALL\n");
+    }
+
+    /// Found by the property test: a ',' right before a line continuation
+    /// used to hang the parser.
+    #[test]
+    fn sudoers_comma_before_continuation_doesnt_hang() {
+        let plugin = SudoersPlugin::new();
+        for input in ["a,\\", "deploy,\\\n ci ALL=(ALL) ALL\n", "a, ,\\x", ",\\"] {
+            let doc = ConfigDocument::parse(&plugin, input).unwrap();
+            assert_eq!(doc.serialize(), input);
+            let _ = doc.to_ir().unwrap();
+        }
     }
 
     #[test]
