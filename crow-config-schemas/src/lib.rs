@@ -1,11 +1,13 @@
 pub mod hosts;
 pub mod pg_hba;
 pub mod sshd;
+pub mod sysctl;
 pub mod ufw;
 
 pub use hosts::{HostsPlugin, HOSTS_MANIFEST, HOSTS_MANIFEST_TOML};
 pub use pg_hba::{PgHbaPlugin, PG_HBA_MANIFEST, PG_HBA_MANIFEST_TOML};
 pub use sshd::{SshdPlugin, SSHD_MANIFEST, SSHD_MANIFEST_TOML};
+pub use sysctl::{SysctlPlugin, SYSCTL_MANIFEST, SYSCTL_MANIFEST_TOML};
 pub use ufw::{UfwPlugin, UFW_MANIFEST, UFW_MANIFEST_TOML};
 
 #[cfg(test)]
@@ -19,12 +21,13 @@ mod tests {
     const SAMPLE_SSHD: &str = include_str!("../test_data/sshd_config_sample.txt");
     const SAMPLE_PG_HBA: &str = include_str!("../test_data/pg_hba_sample.conf");
     const SAMPLE_UFW: &str = include_str!("../test_data/ufw_sample.rules");
+    const SAMPLE_SYSCTL: &str = include_str!("../test_data/sysctl_sample.conf");
 
     /// Every shipped manifest is a valid config-format plugin.
     #[test]
     fn shipped_manifests_declare_the_config_format_category() {
         use crow_config_core::{categories, PluginKind};
-        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST] {
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST] {
             assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
             assert_eq!(m.plugin.kind, PluginKind::Config);
             assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
@@ -455,6 +458,95 @@ mod tests {
             let doc = ConfigDocument::parse(&plugin, &input).unwrap();
             let roundtripped = doc.serialize();
             prop_assert_eq!(roundtripped, input);
+        }
+    }
+
+    // ==========================================
+    // sysctl Tests
+    // ==========================================
+
+    fn sysctl_rows(text: &str) -> Vec<(String, String, String, Option<bool>)> {
+        let ir = ConfigDocument::parse(&SysctlPlugin::new(), text).unwrap().to_ir().unwrap();
+        ir.rows
+            .iter()
+            .map(|r| {
+                let f = |n: &str| r.get_field(n).unwrap();
+                (r.row_id.clone(), f("key").value.as_str().unwrap().to_string(), f("value").value.as_str().unwrap().to_string(), f("key").valid)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sysctl_reads_keys_values_and_keeps_every_byte() {
+        let plugin = SysctlPlugin::new();
+        let doc = ConfigDocument::parse(&plugin, SAMPLE_SYSCTL).unwrap();
+        assert_eq!(doc.serialize(), SAMPLE_SYSCTL);
+        let rows = sysctl_rows(SAMPLE_SYSCTL);
+        let kv: Vec<(&str, &str)> = rows.iter().map(|(_, k, v, _)| (k.as_str(), v.as_str())).collect();
+        assert_eq!(
+            kv,
+            vec![
+                ("net.ipv4.ip_forward", "0"),
+                ("net.ipv4.conf.all.rp_filter", "1"),
+                ("kernel.kptr_restrict", "2"),
+                ("net.ipv6.conf.all.disable_ipv6", "1"),
+                ("net.ipv4.ip_local_port_range", "32768\t60999"),
+                ("kernel.core_pattern", "|/usr/lib/systemd/systemd-coredump %P # not a comment"),
+                ("net.ipv4.ip_forward", "1"),
+            ],
+            "comments, blanks and the line without '=' aren't rows; '#' after a value is part of it"
+        );
+        assert_eq!(rows[0].0, "line-4");
+        assert!(rows.iter().all(|r| r.3 == Some(true)));
+    }
+
+    #[test]
+    fn sysctl_edits_touch_only_their_token() {
+        let plugin = SysctlPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SAMPLE_SYSCTL).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-6".into(), field_name: "value".into(), new_value: serde_json::json!("1") }).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-7".into(), field_name: "key".into(), new_value: serde_json::json!("net.ipv6.conf.default.disable_ipv6") }).unwrap();
+        let expected = SAMPLE_SYSCTL
+            .replace("  kernel.kptr_restrict =\t2", "  kernel.kptr_restrict =\t1")
+            .replace("-net.ipv6.conf.all.disable_ipv6", "-net.ipv6.conf.default.disable_ipv6");
+        assert_eq!(doc.serialize(), expected, "spacing and the '-' marker survive");
+        let bad = doc.apply_edit(&EditOp::UpdateField { row_id: "line-4".into(), field_name: "key".into(), new_value: serde_json::json!("net ipv4") });
+        assert!(bad.is_err(), "spaces aren't allowed in a key");
+        let bad = doc.apply_edit(&EditOp::UpdateField { row_id: "line-4".into(), field_name: "value".into(), new_value: serde_json::json!("1\nkernel.x = 2") });
+        assert!(bad.is_err(), "a value can't smuggle in another line");
+    }
+
+    #[test]
+    fn sysctl_insert_delete_and_move() {
+        let plugin = SysctlPlugin::new();
+        // No newline at the end: an appended line must still start on its own.
+        let mut doc = ConfigDocument::parse(&plugin, "a.b = 1\nc.d = 2").unwrap();
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("key".to_string(), serde_json::json!("vm.swappiness"));
+        fields.insert("value".to_string(), serde_json::json!("10"));
+        doc.apply_edit(&EditOp::InsertRow { after_row_id: Some("line-2".into()), fields }).unwrap();
+        assert_eq!(doc.serialize(), "a.b = 1\nc.d = 2\nvm.swappiness = 10\n");
+        doc.apply_edit(&EditOp::MoveRow { row_id: "line-3".into(), before_row_id: Some("line-1".into()), after_row_id: None }).unwrap();
+        assert_eq!(doc.serialize(), "vm.swappiness = 10\na.b = 1\nc.d = 2\n");
+        doc.apply_edit(&EditOp::DeleteRow { row_id: "line-2".into() }).unwrap();
+        assert_eq!(doc.serialize(), "vm.swappiness = 10\nc.d = 2\n");
+    }
+
+    #[test]
+    fn sysctl_flags_malformed_keys_and_empty_values() {
+        let rows = sysctl_rows("bad key! = 1\nnet.x =\n");
+        assert_eq!(rows[0].3, Some(false));
+        let ir = ConfigDocument::parse(&SysctlPlugin::new(), "net.x =\n").unwrap().to_ir().unwrap();
+        assert_eq!(ir.rows[0].get_field("value").unwrap().valid, Some(false));
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_sysctl_arbitrary_input_never_panics_and_roundtrips(input in "\\PC*") {
+            let plugin = SysctlPlugin::new();
+            let doc = ConfigDocument::parse(&plugin, &input).unwrap();
+            prop_assert_eq!(doc.serialize(), input.clone());
+            let _ = doc.to_ir().unwrap();
         }
     }
 }
