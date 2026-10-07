@@ -1,0 +1,12 @@
+# /etc/fstab: static file system information.
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+UUID=1b2c3d4e-0000-4000-8000-000000000001 /               ext4    errors=remount-ro 0       1
+UUID=AB12-CD34  /boot/efi       vfat    umask=0077      0       1
+/swap.img	none	swap	sw	0	0
+tmpfs /tmp tmpfs defaults,size=2G
+nas:/export/backups /mnt/backups nfs defaults 0 0
+/dev/sdb1 /data xfs defaults,nofail 0 2
+//files/share /mnt/share cifs credentials=/root/.smb,_netdev,nofail 0 0
+LABEL=My\040Disk /mnt/my\040disk ext4 noauto 0 0
+broken line

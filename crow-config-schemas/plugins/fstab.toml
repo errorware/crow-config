@@ -1,0 +1,45 @@
+[plugin]
+name = "fstab"
+grammar = "fstab-line-grammar"
+category = "config.format"
+
+[shape]
+kind = "rule_table"
+order_sensitive = true
+order_note = "Mounts happen top to bottom: a mount point inside another (/var/log inside /var) must come after it."
+
+[[fields]]
+name = "device"
+type = "string"
+required = true
+help = "What to mount: UUID=…, LABEL=…, /dev/…, server:/export (NFS) or //server/share (CIFS). Spaces are written \\040."
+
+[[fields]]
+name = "mountpoint"
+type = "string"
+required = true
+help = "Where it's mounted, or 'none' for swap."
+
+[[fields]]
+name = "type"
+type = "string"
+required = true
+help = "Filesystem type: ext4, xfs, btrfs, vfat, nfs, cifs, swap, tmpfs…"
+
+[[fields]]
+name = "options"
+type = "string"
+required = true
+help = "Comma-separated mount options; 'defaults' if none. 'nofail' lets the boot go on when the device is missing."
+
+[[fields]]
+name = "dump"
+type = "string"
+required = false
+help = "Used by the old dump backup tool; 0 almost everywhere."
+
+[[fields]]
+name = "pass"
+type = "string"
+required = false
+help = "fsck order at boot: 1 for /, 2 for other local filesystems, 0 to skip."
