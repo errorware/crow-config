@@ -905,6 +905,7 @@ mod tests {
         assert!(view.contains(&("proxy_pass", "http://127.0.0.1:3000", Some("server › location /api"))));
         assert!(view.contains(&("try_files", "$uri $uri/ =404", Some("server › location /"))));
         assert!(!view.iter().any(|v| v.0 == "return" || v.0 == "log_format"), "a one-line block and a multi-line directive stay text");
+        assert!(!view.iter().any(|v| v.0.starts_with('\'')), "a multi-line directive's later lines aren't directives");
         assert!(view.contains(&("server_name", "_", Some("server"))), "blocks after a one-line block keep their nesting");
         assert_eq!(ir.rows.iter().find(|r| r.fields[0].name == "server_name").unwrap().scope.as_deref(), Some("server"));
     }
@@ -939,3 +940,4 @@ mod tests {
         }
     }
 }
+
