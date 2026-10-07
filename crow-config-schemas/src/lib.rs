@@ -1,12 +1,14 @@
 pub mod hosts;
 pub mod pg_hba;
 pub mod sshd;
+pub mod sudoers;
 pub mod sysctl;
 pub mod ufw;
 
 pub use hosts::{HostsPlugin, HOSTS_MANIFEST, HOSTS_MANIFEST_TOML};
 pub use pg_hba::{PgHbaPlugin, PG_HBA_MANIFEST, PG_HBA_MANIFEST_TOML};
 pub use sshd::{SshdPlugin, SSHD_MANIFEST, SSHD_MANIFEST_TOML};
+pub use sudoers::{rule_risk as sudoers_rule_risk, SudoersPlugin, SUDOERS_MANIFEST, SUDOERS_MANIFEST_TOML};
 pub use sysctl::{SysctlPlugin, SYSCTL_MANIFEST, SYSCTL_MANIFEST_TOML};
 pub use ufw::{UfwPlugin, UFW_MANIFEST, UFW_MANIFEST_TOML};
 
@@ -22,12 +24,13 @@ mod tests {
     const SAMPLE_PG_HBA: &str = include_str!("../test_data/pg_hba_sample.conf");
     const SAMPLE_UFW: &str = include_str!("../test_data/ufw_sample.rules");
     const SAMPLE_SYSCTL: &str = include_str!("../test_data/sysctl_sample.conf");
+    const SAMPLE_SUDOERS: &str = include_str!("../test_data/sudoers_sample");
 
     /// Every shipped manifest is a valid config-format plugin.
     #[test]
     fn shipped_manifests_declare_the_config_format_category() {
         use crow_config_core::{categories, PluginKind};
-        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST] {
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST] {
             assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
             assert_eq!(m.plugin.kind, PluginKind::Config);
             assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
@@ -549,4 +552,97 @@ mod tests {
             let _ = doc.to_ir().unwrap();
         }
     }
+
+    // ==========================================
+    // sudoers Tests
+    // ==========================================
+
+    fn sudoers_rows(text: &str) -> Vec<(String, String, String, String)> {
+        let ir = ConfigDocument::parse(&SudoersPlugin::new(), text).unwrap().to_ir().unwrap();
+        ir.rows
+            .iter()
+            .map(|r| {
+                let f = |n: &str| r.get_field(n).and_then(|f| f.value.as_str()).unwrap_or("-").to_string();
+                (r.row_id.clone(), f("kind"), f("who"), f("rule"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sudoers_reads_every_kind_of_entry_and_keeps_every_byte() {
+        let plugin = SudoersPlugin::new();
+        let doc = ConfigDocument::parse(&plugin, SAMPLE_SUDOERS).unwrap();
+        assert_eq!(doc.serialize(), SAMPLE_SUDOERS);
+        let rows = sudoers_rows(SAMPLE_SUDOERS);
+        let view: Vec<(&str, &str, &str)> = rows.iter().map(|(_, k, w, r)| (k.as_str(), w.as_str(), r.as_str())).collect();
+        assert_eq!(
+            view,
+            vec![
+                ("Defaults", "", "env_reset"),
+                ("Defaults", "", "mail_badpass"),
+                ("Defaults", "", "secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin\""),
+                ("Defaults", "deploy", "!requiretty"),
+                ("Cmnd_Alias", "SERVICES", "/usr/bin/systemctl restart nginx, /usr/bin/systemctl reload nginx"),
+                ("rule", "root", "ALL=(ALL:ALL) ALL"),
+                ("rule", "%admin", "ALL=(ALL) ALL"),
+                ("rule", "%sudo", "ALL=(ALL:ALL) ALL"),
+                ("rule", "deploy, ci", "ALL=(root) NOPASSWD: SERVICES"),
+                ("rule", "#1001", "ALL=(ALL) NOPASSWD: ALL"),
+                ("@includedir", "-", "/etc/sudoers.d"),
+            ]
+        );
+        // The alias spans two lines; the next row's id is the line after it.
+        assert_eq!(rows[4].0, "line-10");
+        assert_eq!(rows[5].0, "line-14");
+    }
+
+    #[test]
+    fn sudoers_edits_rules_defaults_and_aliases_in_place() {
+        let plugin = SudoersPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SAMPLE_SUDOERS).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-17".into(), field_name: "rule".into(), new_value: serde_json::json!("ALL=(ALL:ALL) ALL") }).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-7".into(), field_name: "who".into(), new_value: serde_json::json!("ci") }).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-10".into(), field_name: "rule".into(), new_value: serde_json::json!("/usr/bin/systemctl restart nginx") }).unwrap();
+        let out = doc.serialize();
+        assert!(out.contains("%admin ALL=(ALL:ALL) ALL\n"));
+        assert!(out.contains("Defaults:ci\t!requiretty\n"));
+        assert!(out.contains("Cmnd_Alias\tSERVICES = /usr/bin/systemctl restart nginx\n\n# User"), "the continuation is folded into one line");
+        assert!(doc.apply_edit(&EditOp::UpdateField { row_id: "line-14".into(), field_name: "kind".into(), new_value: serde_json::json!("Defaults") }).is_err());
+        assert!(doc.apply_edit(&EditOp::UpdateField { row_id: "line-14".into(), field_name: "rule".into(), new_value: serde_json::json!("ALL\nevil ALL=(ALL) ALL") }).is_err());
+    }
+
+    #[test]
+    fn sudoers_insert_move_delete() {
+        let plugin = SudoersPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, "root ALL=(ALL) ALL\n%sudo ALL=(ALL) ALL").unwrap();
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("who".to_string(), serde_json::json!("deploy"));
+        fields.insert("rule".to_string(), serde_json::json!("ALL=(root) /usr/bin/systemctl"));
+        doc.apply_edit(&EditOp::InsertRow { after_row_id: Some("line-2".into()), fields }).unwrap();
+        assert_eq!(doc.serialize(), "root ALL=(ALL) ALL\n%sudo ALL=(ALL) ALL\ndeploy ALL=(root) /usr/bin/systemctl\n");
+        doc.apply_edit(&EditOp::MoveRow { row_id: "line-3".into(), before_row_id: Some("line-1".into()), after_row_id: None }).unwrap();
+        assert!(doc.serialize().starts_with("deploy "));
+        doc.apply_edit(&EditOp::DeleteRow { row_id: "line-1".into() }).unwrap();
+        assert_eq!(doc.serialize(), "root ALL=(ALL) ALL\n%sudo ALL=(ALL) ALL\n");
+    }
+
+    #[test]
+    fn sudoers_names_risky_rules() {
+        assert_eq!(sudoers_rule_risk("ALL=(ALL) NOPASSWD: ALL"), Some("any command as root, without a password"));
+        assert_eq!(sudoers_rule_risk("ALL=(ALL:ALL) ALL"), None, "asks for the password: sudo's normal shape");
+        assert!(sudoers_rule_risk("ALL=(root) NOPASSWD: /usr/bin/vim /etc/hosts").is_some(), "vim can spawn a shell");
+        assert_eq!(sudoers_rule_risk("ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx"), None);
+        assert_eq!(sudoers_rule_risk("ALL=(root) SERVICES"), None);
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_sudoers_arbitrary_input_never_panics_and_roundtrips(input in "\\PC*") {
+            let plugin = SudoersPlugin::new();
+            let doc = ConfigDocument::parse(&plugin, &input).unwrap();
+            prop_assert_eq!(doc.serialize(), input.clone());
+            let _ = doc.to_ir().unwrap();
+        }
+    }
 }
+

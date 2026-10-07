@@ -1,0 +1,22 @@
+#
+# This file MUST be edited with the 'visudo' command as root.
+#
+Defaults	env_reset
+Defaults	mail_badpass
+Defaults	secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
+Defaults:deploy	!requiretty
+
+# Cmnd alias specification
+Cmnd_Alias	SERVICES = /usr/bin/systemctl restart nginx, \
+		/usr/bin/systemctl reload nginx
+
+# User privilege specification
+root	ALL=(ALL:ALL) ALL
+
+# Members of the admin group may gain root privileges
+%admin ALL=(ALL) ALL
+%sudo	ALL=(ALL:ALL) ALL
+deploy, ci	ALL=(root) NOPASSWD: SERVICES
+#1001 ALL=(ALL) NOPASSWD: ALL
+
+@includedir /etc/sudoers.d
