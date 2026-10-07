@@ -1,0 +1,11 @@
+# MariaDB server configuration
+[client-server]
+socket = /run/mysqld/mysqld.sock
+
+[mysqld]
+bind-address = 127.0.0.1
+max_connections=200
+skip-name-resolve
+innodb_buffer_pool_size = 1G ; half the RAM
+
+!includedir /etc/mysql/conf.d/

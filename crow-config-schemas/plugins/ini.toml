@@ -1,0 +1,20 @@
+[plugin]
+name = "ini"
+grammar = "ini-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = false
+
+[[fields]]
+name = "section"
+type = "string"
+required = true
+help = "A section, such as [mysqld] or [global]."
+
+# smb.conf is checked with Samba's own testparm; other INI files have no
+# checker of their own here.
+[[validators]]
+command = '''sh -c 'case "$2" in smb.conf) testparm -s "$1" >/dev/null ;; *) exit 0 ;; esac' crow-ini {file} {name}'''
+description = "testparm, for Samba's smb.conf."

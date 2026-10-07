@@ -1,5 +1,6 @@
 pub mod fstab;
 pub mod hosts;
+pub mod ini;
 pub mod logrotate;
 pub mod nginx;
 pub mod pg_hba;
@@ -12,6 +13,7 @@ pub mod ufw;
 pub use fstab::{boot_risk as fstab_boot_risk, mounts as fstab_mounts, FstabPlugin, Mount as FstabMount, FSTAB_MANIFEST, FSTAB_MANIFEST_TOML};
 pub use logrotate::{LogrotatePlugin, LOGROTATE_MANIFEST, LOGROTATE_MANIFEST_TOML};
 pub use nginx::{NginxPlugin, NGINX_MANIFEST, NGINX_MANIFEST_TOML};
+pub use ini::{IniPlugin, INI_MANIFEST, INI_MANIFEST_TOML};
 pub use hosts::{HostsPlugin, HOSTS_MANIFEST, HOSTS_MANIFEST_TOML};
 pub use pg_hba::{PgHbaPlugin, PG_HBA_MANIFEST, PG_HBA_MANIFEST_TOML};
 pub use sshd::{SshdPlugin, SSHD_MANIFEST, SSHD_MANIFEST_TOML};
@@ -37,13 +39,14 @@ mod tests {
     const SAMPLE_LOGROTATE: &str = include_str!("../test_data/logrotate_sample");
     const SAMPLE_SYSTEMD: &str = include_str!("../test_data/systemd_sample.service");
     const SAMPLE_NGINX: &str = include_str!("../test_data/nginx_site");
+    const SAMPLE_MY_CNF: &str = include_str!("../test_data/my_cnf_sample");
     const SAMPLE_LOGROTATE_MARIADB: &str = include_str!("../test_data/logrotate_mariadb");
 
     /// Every shipped manifest is a valid config-format plugin.
     #[test]
     fn shipped_manifests_declare_the_config_format_category() {
         use crow_config_core::{categories, PluginKind};
-        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST, &*LOGROTATE_MANIFEST, &*SYSTEMD_MANIFEST, &*NGINX_MANIFEST] {
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST, &*LOGROTATE_MANIFEST, &*SYSTEMD_MANIFEST, &*NGINX_MANIFEST, &*INI_MANIFEST] {
             assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
             assert_eq!(m.plugin.kind, PluginKind::Config);
             assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
@@ -939,5 +942,25 @@ mod tests {
             let _ = doc.to_ir().unwrap();
         }
     }
-}
 
+    // ==========================================
+    // INI Tests
+    // ==========================================
+
+    #[test]
+    fn ini_reads_sections_and_keys_and_keeps_flags_as_text() {
+        let plugin = IniPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SAMPLE_MY_CNF).unwrap();
+        assert_eq!(doc.serialize(), SAMPLE_MY_CNF);
+        let ir = doc.to_ir().unwrap();
+        assert_eq!(ir.plugin_name, "ini");
+        let view: Vec<(&str, &str, Option<&str>)> = ir.rows.iter().map(|r| (r.fields[0].name.as_str(), r.fields[0].value.as_str().unwrap(), r.scope.as_deref())).collect();
+        assert!(view.contains(&("bind-address", "127.0.0.1", Some("mysqld"))));
+        assert!(view.contains(&("max_connections", "200", Some("mysqld"))));
+        assert!(!view.iter().any(|v| v.0.contains("skip-name-resolve") || v.0.contains("includedir")), "flags and includes stay text");
+        assert!(ir.rows.iter().all(|r| r.fields[0].help.is_none()), "no systemd help");
+        let id = ir.rows.iter().find(|r| r.fields[0].name == "max_connections").unwrap().row_id.clone();
+        doc.apply_edit(&EditOp::UpdateField { row_id: id, field_name: "max_connections".into(), new_value: serde_json::json!("500") }).unwrap();
+        assert!(doc.serialize().contains("max_connections=500\n"));
+    }
+}
