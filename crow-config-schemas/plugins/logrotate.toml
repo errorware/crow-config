@@ -19,5 +19,5 @@ help = "The log files a block applies to: paths or globs, separated by spaces."
 # as "error: <file>:<line> ..."); complaints about the log files themselves
 # (missing, unreadable) aren't the file's fault.
 [[validators]]
-command = '''sh -c 'c="$1.lr"; cp "$1" "$c" && chown 0:0 "$c" && chmod 0644 "$c" || exit 1; out=$(logrotate -d "$c" 2>&1); rm -f "$c"; bad=$(printf "%s\n" "$out" | grep -E "^error: [^ ]+:[0-9]+ "); [ -z "$bad" ] || { printf "%s\n" "$bad" >&2; exit 1; }' crow-logrotate {file}'''
+command = '''sh -c 'c=$(mktemp) || exit 1; cat "$1" > "$c" && chown 0:0 "$c" && chmod 0644 "$c" || { rm -f "$c"; exit 1; }; out=$(logrotate -d "$c" 2>&1); rm -f "$c"; bad=$(printf "%s\n" "$out" | grep -E "^error: [^ ]+:[0-9]+ "); [ -z "$bad" ] || { printf "%s\n" "$bad" >&2; exit 1; }' crow-logrotate {file}'''
 description = "logrotate's own dry run (-d): parses the file, rotates nothing."
