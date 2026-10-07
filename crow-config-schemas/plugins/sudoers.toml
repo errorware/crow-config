@@ -1,0 +1,31 @@
+[plugin]
+name = "sudoers"
+grammar = "sudoers-line-grammar"
+category = "config.format"
+
+[shape]
+kind = "rule_table"
+order_sensitive = true
+order_note = "When several rules match, the last one wins: a rule further down overrides one above it."
+
+[[fields]]
+name = "kind"
+type = "string"
+required = true
+help = "rule, Defaults, an alias (User_Alias, Runas_Alias, Host_Alias, Cmnd_Alias) or an include."
+
+[[fields]]
+name = "who"
+type = "string"
+required = false
+help = "For a rule: users, %groups or a User_Alias. For Defaults: what it's bound to (empty for everyone). For an alias: its NAME."
+
+[[fields]]
+name = "rule"
+type = "string"
+required = true
+help = "For a rule: host = (runas) TAGS: commands, e.g. ALL=(ALL:ALL) ALL. For Defaults: the settings. For an alias: its members."
+
+[[validators]]
+command = "visudo -cf {file}"
+description = "sudo's own syntax check."
