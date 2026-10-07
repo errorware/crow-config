@@ -1,0 +1,20 @@
+[plugin]
+name = "fail2ban"
+grammar = "ini-indented-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = false
+
+[[fields]]
+name = "section"
+type = "string"
+required = true
+help = "A jail, such as [sshd], or [DEFAULT] for every jail."
+
+# fail2ban-client -t tests a whole configuration folder, so the change is
+# tested in a copy of /etc/fail2ban with this file in its place.
+[[validators]]
+command = '''sh -c 'command -v fail2ban-client >/dev/null 2>&1 || exit 127; case "$2" in /etc/fail2ban/*) ;; *) exit 0 ;; esac; d=$(mktemp -d) || exit 1; cp -a /etc/fail2ban/. "$d/" && cp "$1" "$d/${2#/etc/fail2ban/}" && out=$(fail2ban-client -c "$d" -t 2>&1); r=$?; rm -rf "$d"; [ $r = 0 ] || { printf "%s\n" "$out" | grep -E "ERROR|line:" | grep -v "test configuration failed" | sed "s|$d|/etc/fail2ban|g" | head -3 >&2; exit 1; }' crow-fail2ban {file} {path}'''
+description = "fail2ban-client -t on a copy of /etc/fail2ban with the change in place."

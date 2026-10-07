@@ -1,0 +1,46 @@
+[plugin]
+name = "ntp"
+grammar = "directive-line-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = true
+order_note = "restrict lines are matched most specific first, but keep defaults (restrict default …) at the top."
+
+[[fields]]
+name = "server"
+type = "string"
+help = "One time server (iburst syncs faster at start)."
+
+[[fields]]
+name = "pool"
+type = "string"
+help = "A pool of time servers, used as several sources."
+
+[[fields]]
+name = "restrict"
+type = "string"
+help = "What an address may do with this server (nomodify, noquery, nopeer, limited…)."
+
+[[fields]]
+name = "driftfile"
+type = "string"
+help = "Where ntpd keeps the clock's measured drift between restarts."
+
+[[fields]]
+name = "leapfile"
+type = "string"
+help = "The leap-seconds list."
+
+[[fields]]
+name = "statsdir"
+type = "string"
+help = "The folder statistics are written to."
+
+[[fields]]
+name = "tinker"
+type = "string"
+help = "Tunes the clock discipline (panic 0 lets ntpd step a far-off clock at start)."
+
+# ntpd has no option that only checks a file.

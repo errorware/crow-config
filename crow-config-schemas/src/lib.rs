@@ -1,3 +1,5 @@
+pub mod directives;
+pub mod fail2ban;
 pub mod fstab;
 pub mod hosts;
 pub mod ini;
@@ -10,6 +12,8 @@ pub mod sysctl;
 pub mod systemd;
 pub mod ufw;
 
+pub use directives::{DirectivesPlugin, CHRONY_MANIFEST, CHRONY_MANIFEST_TOML, NTP_MANIFEST, NTP_MANIFEST_TOML, RESOLV_MANIFEST, RESOLV_MANIFEST_TOML};
+pub use fail2ban::{Fail2banPlugin, FAIL2BAN_MANIFEST, FAIL2BAN_MANIFEST_TOML};
 pub use fstab::{boot_risk as fstab_boot_risk, mounts as fstab_mounts, FstabPlugin, Mount as FstabMount, FSTAB_MANIFEST, FSTAB_MANIFEST_TOML};
 pub use logrotate::{LogrotatePlugin, LOGROTATE_MANIFEST, LOGROTATE_MANIFEST_TOML};
 pub use nginx::{NginxPlugin, NGINX_MANIFEST, NGINX_MANIFEST_TOML};
@@ -940,6 +944,17 @@ mod tests {
             let doc = ConfigDocument::parse(&plugin, &input).unwrap();
             prop_assert_eq!(doc.serialize(), input.clone());
             let _ = doc.to_ir().unwrap();
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_fail2ban_and_directives_arbitrary_input_never_panics_and_roundtrips(input in "[ \t\n\\[\\]=#;!a-z0-9.]*") {
+            for plugin in [&Fail2banPlugin::new() as &dyn ConfigPlugin, &DirectivesPlugin::chrony(), &DirectivesPlugin::resolv()] {
+                let doc = ConfigDocument::parse(plugin, &input).unwrap();
+                prop_assert_eq!(doc.serialize(), input.clone());
+                let _ = doc.to_ir().unwrap();
+            }
         }
     }
 

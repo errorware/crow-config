@@ -292,6 +292,16 @@ fn body_of(line: &str) -> &str {
 /// One node per logical line (a value ending in `\` takes the next line
 /// too); every byte is kept.
 pub fn parse_systemd_cst(input: &str) -> Vec<CstNode> {
+    parse_lines(input, false)
+}
+
+/// Like [`parse_systemd_cst`], and an indented line right after a key also
+/// continues its value, as in Python's configparser (fail2ban's files).
+pub fn parse_indented_cst(input: &str) -> Vec<CstNode> {
+    parse_lines(input, true)
+}
+
+fn parse_lines(input: &str, indent_continues: bool) -> Vec<CstNode> {
     let lines: Vec<&str> = input.split_inclusive('\n').collect();
     let mut out = Vec::new();
     let mut offset = 0;
@@ -303,6 +313,11 @@ pub fn parse_systemd_cst(input: &str) -> Vec<CstNode> {
         if is_entry {
             while end <= lines.len() && body_of(lines[end - 1]).trim_end().ends_with('\\') && end < lines.len() {
                 end += 1;
+            }
+            if indent_continues {
+                while end < lines.len() && lines[end].starts_with([' ', '\t']) && !body_of(lines[end]).trim().is_empty() && !body_of(lines[end]).trim_start().starts_with(['#', ';']) {
+                    end += 1;
+                }
             }
         }
         let text: String = lines[i..end].concat();

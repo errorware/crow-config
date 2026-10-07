@@ -1,0 +1,79 @@
+[plugin]
+name = "chrony"
+grammar = "directive-line-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = false
+
+[[fields]]
+name = "pool"
+type = "string"
+help = "A pool of time servers, used as several sources (iburst syncs faster at start)."
+
+[[fields]]
+name = "server"
+type = "string"
+help = "One time server (iburst syncs faster at start)."
+
+[[fields]]
+name = "makestep"
+type = "string"
+help = "Step the clock instead of slewing when it's off by more than this many seconds, in the first N updates (1 3; -1 = always)."
+
+[[fields]]
+name = "rtcsync"
+type = "string"
+help = "Keeps the hardware clock in step with the system clock (takes no arguments)."
+
+[[fields]]
+name = "driftfile"
+type = "string"
+help = "Where chrony keeps the clock's measured drift between restarts."
+
+[[fields]]
+name = "allow"
+type = "string"
+help = "Serve time to these networks (chrony acts as an NTP server for them)."
+
+[[fields]]
+name = "deny"
+type = "string"
+help = "Refuse NTP service to these networks."
+
+[[fields]]
+name = "local"
+type = "string"
+help = "Keep serving time from the local clock when no source is reachable (stratum 10)."
+
+[[fields]]
+name = "maxupdateskew"
+type = "string"
+help = "Ignore measurements less reliable than this, in ppm."
+
+[[fields]]
+name = "logdir"
+type = "string"
+help = "The folder chrony's own logs go to."
+
+[[fields]]
+name = "keyfile"
+type = "string"
+help = "The file of keys for authenticated NTP and chronyc."
+
+[[fields]]
+name = "confdir"
+type = "string"
+help = "A folder whose *.conf files are read as part of this one."
+
+[[fields]]
+name = "sourcedir"
+type = "string"
+help = "A folder of *.sources files listing more servers."
+
+# chronyd -p reads the file, prints the configuration and exits; it fails on
+# a directive it doesn't know or can't parse. Nothing is started.
+[[validators]]
+command = "chronyd -p -f {file}"
+description = "chronyd -p: parse the file and exit."

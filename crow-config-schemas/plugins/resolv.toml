@@ -1,0 +1,31 @@
+[plugin]
+name = "resolv"
+grammar = "directive-line-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = true
+order_note = "nameserver lines are tried in order, and only the first three are used."
+
+[[fields]]
+name = "nameserver"
+type = "string"
+help = "A DNS server's address; tried in the order listed, at most three."
+
+[[fields]]
+name = "search"
+type = "string"
+help = "Domains tried after a short name (host → host.lan), in order."
+
+[[fields]]
+name = "domain"
+type = "string"
+help = "The local domain (an older, single-domain search)."
+
+[[fields]]
+name = "options"
+type = "string"
+help = "Resolver options: ndots:N, timeout:N, attempts:N, rotate, edns0, trust-ad."
+
+# The resolver has no checker of its own.
