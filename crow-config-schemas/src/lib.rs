@@ -1,6 +1,7 @@
 pub mod fstab;
 pub mod hosts;
 pub mod logrotate;
+pub mod nginx;
 pub mod pg_hba;
 pub mod sshd;
 pub mod sudoers;
@@ -10,6 +11,7 @@ pub mod ufw;
 
 pub use fstab::{boot_risk as fstab_boot_risk, mounts as fstab_mounts, FstabPlugin, Mount as FstabMount, FSTAB_MANIFEST, FSTAB_MANIFEST_TOML};
 pub use logrotate::{LogrotatePlugin, LOGROTATE_MANIFEST, LOGROTATE_MANIFEST_TOML};
+pub use nginx::{NginxPlugin, NGINX_MANIFEST, NGINX_MANIFEST_TOML};
 pub use hosts::{HostsPlugin, HOSTS_MANIFEST, HOSTS_MANIFEST_TOML};
 pub use pg_hba::{PgHbaPlugin, PG_HBA_MANIFEST, PG_HBA_MANIFEST_TOML};
 pub use sshd::{SshdPlugin, SSHD_MANIFEST, SSHD_MANIFEST_TOML};
@@ -34,13 +36,14 @@ mod tests {
     const SAMPLE_FSTAB: &str = include_str!("../test_data/fstab_sample");
     const SAMPLE_LOGROTATE: &str = include_str!("../test_data/logrotate_sample");
     const SAMPLE_SYSTEMD: &str = include_str!("../test_data/systemd_sample.service");
+    const SAMPLE_NGINX: &str = include_str!("../test_data/nginx_site");
     const SAMPLE_LOGROTATE_MARIADB: &str = include_str!("../test_data/logrotate_mariadb");
 
     /// Every shipped manifest is a valid config-format plugin.
     #[test]
     fn shipped_manifests_declare_the_config_format_category() {
         use crow_config_core::{categories, PluginKind};
-        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST, &*LOGROTATE_MANIFEST, &*SYSTEMD_MANIFEST] {
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST, &*LOGROTATE_MANIFEST, &*SYSTEMD_MANIFEST, &*NGINX_MANIFEST] {
             assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
             assert_eq!(m.plugin.kind, PluginKind::Config);
             assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
@@ -884,5 +887,55 @@ mod tests {
             let _ = doc.to_ir().unwrap();
         }
     }
-}
 
+    // ==========================================
+    // nginx Tests
+    // ==========================================
+
+    #[test]
+    fn nginx_reads_directives_in_nested_blocks() {
+        let plugin = NginxPlugin::new();
+        let doc = ConfigDocument::parse(&plugin, SAMPLE_NGINX).unwrap();
+        assert_eq!(doc.serialize(), SAMPLE_NGINX);
+        let ir = doc.to_ir().unwrap();
+        let view: Vec<(&str, &str, Option<&str>)> = ir.rows.iter().map(|r| (r.fields[0].name.as_str(), r.fields[0].value.as_str().unwrap(), r.scope.as_deref())).collect();
+        assert_eq!(view[0], ("server", "", Some("server")));
+        assert!(view.contains(&("listen", "[::]:80 default_server", Some("server"))), "trailing comment left out of the value");
+        assert!(view.contains(&("location", "/api", Some("server › location /api"))));
+        assert!(view.contains(&("proxy_pass", "http://127.0.0.1:3000", Some("server › location /api"))));
+        assert!(view.contains(&("try_files", "$uri $uri/ =404", Some("server › location /"))));
+        assert!(!view.iter().any(|v| v.0 == "return" || v.0 == "log_format"), "a one-line block and a multi-line directive stay text");
+        assert!(view.contains(&("server_name", "_", Some("server"))), "blocks after a one-line block keep their nesting");
+        assert_eq!(ir.rows.iter().find(|r| r.fields[0].name == "server_name").unwrap().scope.as_deref(), Some("server"));
+    }
+
+    #[test]
+    fn nginx_edits_and_adds_with_the_right_indentation() {
+        let plugin = NginxPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SAMPLE_NGINX).unwrap();
+        let id = |doc: &ConfigDocument, k: &str| doc.to_ir().unwrap().rows.iter().find(|r| r.fields[0].name == k).unwrap().row_id.clone();
+        let rid = id(&doc, "proxy_pass");
+        doc.apply_edit(&EditOp::UpdateField { row_id: rid, field_name: "proxy_pass".into(), new_value: serde_json::json!("http://127.0.0.1:4000") }).unwrap();
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("client_max_body_size".to_string(), serde_json::json!("10m"));
+        let rid = id(&doc, "server_name");
+        doc.apply_edit(&EditOp::InsertRow { after_row_id: Some(rid), fields }).unwrap();
+        let out = doc.serialize();
+        assert!(out.contains("\t\tproxy_pass http://127.0.0.1:4000;\n"));
+        assert!(out.contains("\tserver_name _;\n\tclient_max_body_size 10m;\n"), "{out}");
+        let rid = id(&doc, "listen");
+        assert!(doc.apply_edit(&EditOp::UpdateField { row_id: rid, field_name: "listen".into(), new_value: serde_json::json!("80; evil") }).is_err(), "no smuggled statements");
+        let rid = id(&doc, "location");
+        assert!(doc.apply_edit(&EditOp::DeleteRow { row_id: rid }).is_err(), "blocks: text view");
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_nginx_arbitrary_input_never_panics_and_roundtrips(input in "\\PC*") {
+            let plugin = NginxPlugin::new();
+            let doc = ConfigDocument::parse(&plugin, &input).unwrap();
+            prop_assert_eq!(doc.serialize(), input.clone());
+            let _ = doc.to_ir().unwrap();
+        }
+    }
+}
