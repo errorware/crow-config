@@ -1,3 +1,4 @@
+pub mod fstab;
 pub mod hosts;
 pub mod pg_hba;
 pub mod sshd;
@@ -5,6 +6,7 @@ pub mod sudoers;
 pub mod sysctl;
 pub mod ufw;
 
+pub use fstab::{boot_risk as fstab_boot_risk, mounts as fstab_mounts, FstabPlugin, Mount as FstabMount, FSTAB_MANIFEST, FSTAB_MANIFEST_TOML};
 pub use hosts::{HostsPlugin, HOSTS_MANIFEST, HOSTS_MANIFEST_TOML};
 pub use pg_hba::{PgHbaPlugin, PG_HBA_MANIFEST, PG_HBA_MANIFEST_TOML};
 pub use sshd::{SshdPlugin, SSHD_MANIFEST, SSHD_MANIFEST_TOML};
@@ -25,12 +27,13 @@ mod tests {
     const SAMPLE_UFW: &str = include_str!("../test_data/ufw_sample.rules");
     const SAMPLE_SYSCTL: &str = include_str!("../test_data/sysctl_sample.conf");
     const SAMPLE_SUDOERS: &str = include_str!("../test_data/sudoers_sample");
+    const SAMPLE_FSTAB: &str = include_str!("../test_data/fstab_sample");
 
     /// Every shipped manifest is a valid config-format plugin.
     #[test]
     fn shipped_manifests_declare_the_config_format_category() {
         use crow_config_core::{categories, PluginKind};
-        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST] {
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST] {
             assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
             assert_eq!(m.plugin.kind, PluginKind::Config);
             assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
@@ -644,5 +647,82 @@ mod tests {
             let _ = doc.to_ir().unwrap();
         }
     }
-}
 
+    // ==========================================
+    // fstab Tests
+    // ==========================================
+
+    #[test]
+    fn fstab_reads_mounts_and_keeps_every_byte() {
+        let plugin = FstabPlugin::new();
+        let doc = ConfigDocument::parse(&plugin, SAMPLE_FSTAB).unwrap();
+        assert_eq!(doc.serialize(), SAMPLE_FSTAB);
+        let ir = doc.to_ir().unwrap();
+        let rows: Vec<Vec<String>> = ir.rows.iter().map(|r| r.fields.iter().map(|f| f.value.as_str().unwrap().to_string()).collect()).collect();
+        assert_eq!(rows.len(), 8, "the broken line isn't a mount");
+        assert_eq!(rows[0], ["UUID=1b2c3d4e-0000-4000-8000-000000000001", "/", "ext4", "errors=remount-ro", "0", "1"]);
+        assert_eq!(rows[3], ["tmpfs", "/tmp", "tmpfs", "defaults,size=2G", "0", "0"], "dump and pass default to 0");
+        assert_eq!(ir.rows[0].row_id, "line-4");
+    }
+
+    #[test]
+    fn fstab_edits_in_place_and_fills_left_out_fields() {
+        let plugin = FstabPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SAMPLE_FSTAB).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-8".into(), field_name: "options".into(), new_value: serde_json::json!("defaults,_netdev,nofail") }).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-7".into(), field_name: "pass".into(), new_value: serde_json::json!("0") }).unwrap();
+        let out = doc.serialize();
+        assert!(out.contains("nas:/export/backups /mnt/backups nfs defaults,_netdev,nofail 0 0\n"));
+        assert!(out.contains("tmpfs /tmp tmpfs defaults,size=2G 0 0\n"), "dump was written too");
+        assert!(doc.apply_edit(&EditOp::UpdateField { row_id: "line-8".into(), field_name: "mountpoint".into(), new_value: serde_json::json!("mnt") }).is_err());
+        assert!(doc.apply_edit(&EditOp::UpdateField { row_id: "line-8".into(), field_name: "pass".into(), new_value: serde_json::json!("two") }).is_err());
+        doc.apply_edit(&EditOp::UpdateField { row_id: "line-11".into(), field_name: "mountpoint".into(), new_value: serde_json::json!("/mnt/our disk") }).unwrap();
+        assert!(doc.serialize().contains("LABEL=My\\040Disk /mnt/our\\040disk ext4"), "spaces are written \\040");
+    }
+
+    #[test]
+    fn fstab_insert_move_delete() {
+        let plugin = FstabPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, "/dev/sda1 / ext4 defaults 0 1").unwrap();
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("device".to_string(), serde_json::json!("/dev/sdb1"));
+        fields.insert("mountpoint".to_string(), serde_json::json!("/data"));
+        fields.insert("type".to_string(), serde_json::json!("xfs"));
+        doc.apply_edit(&EditOp::InsertRow { after_row_id: Some("line-1".into()), fields }).unwrap();
+        assert_eq!(doc.serialize(), "/dev/sda1 / ext4 defaults 0 1\n/dev/sdb1\t/data\txfs\tdefaults\t0\t0\n");
+        doc.apply_edit(&EditOp::MoveRow { row_id: "line-2".into(), before_row_id: Some("line-1".into()), after_row_id: None }).unwrap();
+        assert!(doc.serialize().starts_with("/dev/sdb1"));
+        doc.apply_edit(&EditOp::DeleteRow { row_id: "line-1".into() }).unwrap();
+        assert_eq!(doc.serialize(), "/dev/sda1 / ext4 defaults 0 1\n");
+    }
+
+    #[test]
+    fn fstab_names_mounts_that_can_stop_a_boot() {
+        let all = fstab_mounts(SAMPLE_FSTAB);
+        let risks: Vec<(String, Option<&str>)> = all.iter().map(|m| (m.mountpoint.clone(), fstab_boot_risk(m, &all))).collect();
+        let risk = |mp: &str| risks.iter().find(|(m, _)| m == mp).unwrap().1;
+        assert_eq!(risk("/"), None, "essential");
+        assert_eq!(risk("none"), None, "swap");
+        assert_eq!(risk("/tmp"), None, "tmpfs");
+        assert!(risk("/mnt/backups").unwrap().contains("_netdev"));
+        assert_eq!(risk("/data"), None, "nofail");
+        assert_eq!(risk("/mnt/share"), None, "_netdev and nofail");
+        assert_eq!(risk("/mnt/my\\040disk"), None, "noauto");
+        let usb = FstabMount { device: "/dev/sdc1".into(), mountpoint: "/media/usb".into(), fstype: "ext4".into(), options: vec!["defaults".into()] };
+        assert!(fstab_boot_risk(&usb, &all).unwrap().contains("nofail"));
+        // A btrfs subvolume of the root disk (Fedora/Bazzite /home) can't go missing alone.
+        let root = FstabMount { device: "UUID=aa".into(), mountpoint: "/".into(), fstype: "btrfs".into(), options: vec!["subvol=root".into()] };
+        let home = FstabMount { device: "UUID=aa".into(), mountpoint: "/home".into(), fstype: "btrfs".into(), options: vec!["subvol=home".into()] };
+        assert_eq!(fstab_boot_risk(&home, &[root, home.clone()]), None);
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_fstab_arbitrary_input_never_panics_and_roundtrips(input in "\\PC*") {
+            let plugin = FstabPlugin::new();
+            let doc = ConfigDocument::parse(&plugin, &input).unwrap();
+            prop_assert_eq!(doc.serialize(), input.clone());
+            let _ = doc.to_ir().unwrap();
+        }
+    }
+}
