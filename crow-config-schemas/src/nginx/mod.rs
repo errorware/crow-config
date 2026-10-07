@@ -60,6 +60,21 @@ fn help_for(directive: &str) -> Option<&'static str> {
     })
 }
 
+/// The directives each block usually takes, in the order they're offered.
+const BLOCK_DIRECTIVES: &[(&str, &[&str])] = &[
+    ("http", &["include", "sendfile", "keepalive_timeout", "gzip", "client_max_body_size", "access_log", "error_log", "add_header"]),
+    ("events", &["worker_connections"]),
+    ("server", &["listen", "server_name", "root", "index", "ssl_certificate", "ssl_certificate_key", "ssl_protocols", "client_max_body_size", "access_log", "error_log", "add_header", "return", "include"]),
+    ("location", &["proxy_pass", "proxy_set_header", "root", "index", "try_files", "return", "rewrite", "allow", "deny", "add_header", "client_max_body_size", "access_log"]),
+];
+
+/// Directives to suggest for a new line in a `block` (`server`,
+/// `location`, …): (directive, what it does).
+pub fn suggested_directives(block: &str) -> Vec<(&'static str, &'static str)> {
+    let Some((_, names)) = BLOCK_DIRECTIVES.iter().find(|(b, _)| *b == block) else { return Vec::new() };
+    names.iter().filter_map(|n| Some((*n, help_for(n)?))).collect()
+}
+
 /// Lossless parser and plugin for nginx configuration.
 #[derive(Debug, Clone)]
 pub struct NginxPlugin {
@@ -352,4 +367,17 @@ fn parse_line(line: &str, base: usize) -> CstNode {
     };
     push(SyntaxKind::Newline, body_end, line.len());
     CstNode::rule(kind, tokens, Span::new(base, base + line.len()))
+}
+
+#[cfg(test)]
+mod suggestion_tests {
+    use super::*;
+
+    #[test]
+    fn every_suggested_directive_has_help() {
+        for (block, names) in BLOCK_DIRECTIVES {
+            assert_eq!(suggested_directives(block).len(), names.len(), "a directive in {block} has no help");
+        }
+        assert!(suggested_directives("upstream").is_empty());
+    }
 }

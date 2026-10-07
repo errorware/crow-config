@@ -90,6 +90,36 @@ fn known(key: &str) -> Option<(&'static str, Values)> {
     })
 }
 
+/// The keys each section usually takes, in the order they're offered.
+const SECTION_KEYS: &[(&str, &[&str])] = &[
+    ("Unit", &["Description", "Documentation", "After", "Before", "Wants", "Requires", "BindsTo", "PartOf", "Conflicts"]),
+    (
+        "Service",
+        &[
+            "Type", "ExecStart", "ExecStartPre", "ExecStartPost", "ExecReload", "ExecStop", "Restart", "RestartSec", "User", "Group", "WorkingDirectory", "Environment", "EnvironmentFile", "PIDFile",
+            "TimeoutStartSec", "TimeoutStopSec", "KillMode", "LimitNOFILE", "MemoryMax", "CPUQuota", "Nice", "StandardOutput", "StandardError", "NoNewPrivileges", "PrivateTmp", "ProtectSystem",
+            "ProtectHome", "DynamicUser",
+        ],
+    ),
+    ("Install", &["WantedBy", "RequiredBy", "Alias"]),
+    ("Timer", &["OnCalendar", "OnBootSec", "OnUnitActiveSec", "Persistent", "Unit"]),
+    ("Socket", &["ListenStream"]),
+    ("Path", &["Unit"]),
+];
+
+/// Keys to suggest for a new line in `section`: (key, what it does, a
+/// starting value: the recommended one when there is one, else empty).
+pub fn suggested_keys(section: &str) -> Vec<(&'static str, &'static str, &'static str)> {
+    let Some((_, keys)) = SECTION_KEYS.iter().find(|(s, _)| *s == section) else { return Vec::new() };
+    keys.iter()
+        .filter_map(|k| {
+            let (help, values) = known(k)?;
+            let start = values.iter().find(|(_, _, r)| *r == Some(RiskLevel::Recommended)).map_or("", |(v, _, _)| *v);
+            Some((*k, help, start))
+        })
+        .collect()
+}
+
 /// Lossless parser and plugin for systemd-style files.
 #[derive(Debug, Clone)]
 pub struct SystemdPlugin {
@@ -328,4 +358,18 @@ fn parse_node(text: &str, base: usize) -> CstNode {
     };
     push(SyntaxKind::Newline, body_end, text.len());
     CstNode::rule(kind, tokens, Span::new(base, base + text.len()))
+}
+
+#[cfg(test)]
+mod suggestion_tests {
+    use super::*;
+
+    #[test]
+    fn every_suggested_key_is_known() {
+        for (section, keys) in SECTION_KEYS {
+            assert_eq!(suggested_keys(section).len(), keys.len(), "a key in [{section}] has no help");
+        }
+        assert!(suggested_keys("Service").contains(&("Restart", "When systemd restarts the service after it exits.", "on-failure")));
+        assert!(suggested_keys("mysqld").is_empty());
+    }
 }
