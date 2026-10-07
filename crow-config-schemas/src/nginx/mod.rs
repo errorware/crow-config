@@ -268,15 +268,34 @@ fn comment_start(body: &str) -> usize {
     body.len()
 }
 
-/// One node per line; every byte is kept.
+/// One node per line; every byte is kept. A statement left open at the end
+/// of a line (a directive spread over lines) keeps the lines that follow
+/// as text until it ends with `;`, `{` or `}`.
 pub fn parse_nginx_cst(input: &str) -> Vec<CstNode> {
     let mut out = Vec::new();
     let mut offset = 0;
+    let mut open_statement = false;
     for line in input.split_inclusive('\n') {
-        out.push(parse_line(line, offset));
+        let body = line.strip_suffix("\r\n").or_else(|| line.strip_suffix('\n')).unwrap_or(line);
+        let code = body[..comment_start(body)].trim();
+        let node = if open_statement && !code.is_empty() { raw_line(line, offset) } else { parse_line(line, offset) };
+        if !code.is_empty() {
+            open_statement = !code.ends_with([';', '{', '}']);
+        }
+        out.push(node);
         offset += line.len();
     }
     out
+}
+
+/// A line kept exactly as it is, as text.
+fn raw_line(line: &str, base: usize) -> CstNode {
+    let body_end = line.strip_suffix("\r\n").or_else(|| line.strip_suffix('\n')).map_or(line.len(), str::len);
+    let mut tokens = vec![CstNode::token(SyntaxKind::Error, &line[..body_end], Span::new(base, base + body_end))];
+    if body_end < line.len() {
+        tokens.push(CstNode::token(SyntaxKind::Newline, &line[body_end..], Span::new(base + body_end, base + line.len())));
+    }
+    CstNode::rule(SyntaxKind::Error, tokens, Span::new(base, base + line.len()))
 }
 
 fn parse_line(line: &str, base: usize) -> CstNode {
