@@ -111,11 +111,11 @@ const KNOWN: &[Known] = &[
     Known { pattern: "vm.dirty_background_ratio", help: "Percent of memory with unwritten data at which the kernel starts writing it out.", values: &[] },
 ];
 
-/// A key in dot form: sysctl also takes `/` as the separator, and then a
-/// `.` means a literal dot (in an interface name, say).
+/// A key in dot form. When a key's first separator is `/`, it's written as
+/// a path, and a `.` in it is a literal dot (in an interface name, say).
 fn dotted(key: &str) -> String {
     let key = key.trim_start_matches('-');
-    if key.contains('/') {
+    if key.find(['.', '/']).is_some_and(|i| key[i..].starts_with('/')) {
         key.chars().map(|c| match c {
             '/' => '.',
             '.' => '/',
@@ -148,6 +148,8 @@ mod tests {
         assert!(known("net.ipv4.conf.rp_filter").is_none(), "segments must line up");
         assert!(known("-kernel.kptr_restrict").is_some(), "the ignore marker isn't part of the key");
         assert!(known("made.up.key").is_none());
+        assert_eq!(known("net.ipv4.conf.eth0/100.rp_filter").map(|k| k.pattern), Some("net.ipv4.conf.*.rp_filter"), "dot form with a VLAN interface");
+        assert_eq!(known("net/ipv4/conf/eth0.100/rp_filter").map(|k| k.pattern), Some("net.ipv4.conf.*.rp_filter"), "path form with a VLAN interface");
     }
 
     #[test]
