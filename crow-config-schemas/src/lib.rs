@@ -5,6 +5,7 @@ pub mod pg_hba;
 pub mod sshd;
 pub mod sudoers;
 pub mod sysctl;
+pub mod systemd;
 pub mod ufw;
 
 pub use fstab::{boot_risk as fstab_boot_risk, mounts as fstab_mounts, FstabPlugin, Mount as FstabMount, FSTAB_MANIFEST, FSTAB_MANIFEST_TOML};
@@ -13,6 +14,7 @@ pub use hosts::{HostsPlugin, HOSTS_MANIFEST, HOSTS_MANIFEST_TOML};
 pub use pg_hba::{PgHbaPlugin, PG_HBA_MANIFEST, PG_HBA_MANIFEST_TOML};
 pub use sshd::{SshdPlugin, SSHD_MANIFEST, SSHD_MANIFEST_TOML};
 pub use sudoers::{rule_risk as sudoers_rule_risk, SudoersPlugin, SUDOERS_MANIFEST, SUDOERS_MANIFEST_TOML};
+pub use systemd::{SystemdPlugin, SYSTEMD_MANIFEST, SYSTEMD_MANIFEST_TOML};
 pub use sysctl::{SysctlPlugin, SYSCTL_MANIFEST, SYSCTL_MANIFEST_TOML};
 pub use ufw::{UfwPlugin, UFW_MANIFEST, UFW_MANIFEST_TOML};
 
@@ -31,13 +33,14 @@ mod tests {
     const SAMPLE_SUDOERS: &str = include_str!("../test_data/sudoers_sample");
     const SAMPLE_FSTAB: &str = include_str!("../test_data/fstab_sample");
     const SAMPLE_LOGROTATE: &str = include_str!("../test_data/logrotate_sample");
+    const SAMPLE_SYSTEMD: &str = include_str!("../test_data/systemd_sample.service");
     const SAMPLE_LOGROTATE_MARIADB: &str = include_str!("../test_data/logrotate_mariadb");
 
     /// Every shipped manifest is a valid config-format plugin.
     #[test]
     fn shipped_manifests_declare_the_config_format_category() {
         use crow_config_core::{categories, PluginKind};
-        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST, &*LOGROTATE_MANIFEST] {
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST, &*LOGROTATE_MANIFEST, &*SYSTEMD_MANIFEST] {
             assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
             assert_eq!(m.plugin.kind, PluginKind::Config);
             assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
@@ -820,6 +823,62 @@ mod tests {
         #[test]
         fn proptest_logrotate_arbitrary_input_never_panics_and_roundtrips(input in "\\PC*") {
             let plugin = LogrotatePlugin::new();
+            let doc = ConfigDocument::parse(&plugin, &input).unwrap();
+            prop_assert_eq!(doc.serialize(), input.clone());
+            let _ = doc.to_ir().unwrap();
+        }
+    }
+
+    // ==========================================
+    // systemd Tests
+    // ==========================================
+
+    #[test]
+    fn systemd_reads_sections_keys_and_continuations() {
+        let plugin = SystemdPlugin::new();
+        let doc = ConfigDocument::parse(&plugin, SAMPLE_SYSTEMD).unwrap();
+        assert_eq!(doc.serialize(), SAMPLE_SYSTEMD);
+        let ir = doc.to_ir().unwrap();
+        let view: Vec<(&str, &str, Option<&str>)> = ir.rows.iter().map(|r| (r.fields[0].name.as_str(), r.fields[0].value.as_str().unwrap(), r.scope.as_deref())).collect();
+        assert_eq!(view[0], ("section", "Unit", Some("Unit")));
+        assert!(view.contains(&("ExecStart", "/usr/bin/app --port 8080 --workers 4", Some("Service"))), "continuations joined");
+        assert!(view.contains(&("Restart", "on-failure", Some("Service"))), "spaces around = are allowed");
+        assert!(view.contains(&("Environment", "", Some("Service"))), "an empty assignment resets the key");
+        assert!(view.contains(&("WantedBy", "multi-user.target", Some("Install"))));
+        let restart = ir.rows.iter().find(|r| r.fields[0].name == "Restart").unwrap();
+        assert!(restart.fields[0].options.as_ref().unwrap().iter().any(|o| o.value == "on-failure" && o.risk == Some(RiskLevel::Recommended)));
+        assert!(restart.fields[0].help.is_some());
+    }
+
+    #[test]
+    fn systemd_edits_in_place_and_adds_keys() {
+        let plugin = SystemdPlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SAMPLE_SYSTEMD).unwrap();
+        // Row ids are line numbers: read them again after each edit, as Crow does.
+        let id = |doc: &ConfigDocument, k: &str| doc.to_ir().unwrap().rows.iter().find(|r| r.fields[0].name == k).unwrap().row_id.clone();
+        let rid = id(&doc, "Restart");
+        doc.apply_edit(&EditOp::UpdateField { row_id: rid, field_name: "Restart".into(), new_value: serde_json::json!("always") }).unwrap();
+        let rid = id(&doc, "ExecStart");
+        doc.apply_edit(&EditOp::UpdateField { row_id: rid, field_name: "ExecStart".into(), new_value: serde_json::json!("/usr/bin/app --port 9090") }).unwrap();
+        let rid = id(&doc, "Environment");
+        doc.apply_edit(&EditOp::UpdateField { row_id: rid, field_name: "Environment".into(), new_value: serde_json::json!("MODE=prod") }).unwrap();
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("PrivateTmp".to_string(), serde_json::json!("yes"));
+        let rid = id(&doc, "NoNewPrivileges");
+        doc.apply_edit(&EditOp::InsertRow { after_row_id: Some(rid), fields }).unwrap();
+        let out = doc.serialize();
+        assert!(out.contains("Restart = always\n"), "spacing kept");
+        assert!(out.contains("ExecStart=/usr/bin/app --port 9090\nRestart"), "continuation folded");
+        assert!(out.contains("Environment=MODE=prod\n"), "an empty value can be filled");
+        assert!(out.contains("NoNewPrivileges=yes\nPrivateTmp=yes\n"));
+        let rid = id(&doc, "section");
+        assert!(doc.apply_edit(&EditOp::DeleteRow { row_id: rid }).is_err(), "sections: text view");
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_systemd_arbitrary_input_never_panics_and_roundtrips(input in "\\PC*") {
+            let plugin = SystemdPlugin::new();
             let doc = ConfigDocument::parse(&plugin, &input).unwrap();
             prop_assert_eq!(doc.serialize(), input.clone());
             let _ = doc.to_ir().unwrap();

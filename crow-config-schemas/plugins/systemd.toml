@@ -1,0 +1,21 @@
+[plugin]
+name = "systemd"
+grammar = "systemd-ini-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = false
+
+[[fields]]
+name = "section"
+type = "string"
+required = true
+help = "A section such as [Unit], [Service], [Install] or [Timer]."
+
+# Unit files are checked with systemd's own verifier, under their real name
+# ({name}; it needs the suffix to know the unit type). Drop-ins and
+# systemd's settings files aren't units, so they pass.
+[[validators]]
+command = '''sh -c 'case "$2" in *.service|*.socket|*.timer|*.path|*.mount|*.automount|*.target|*.swap|*.slice) d=$(mktemp -d) || exit 1; cp "$1" "$d/$2" && systemd-analyze verify "$d/$2"; r=$?; rm -rf "$d"; exit $r ;; *) exit 0 ;; esac' crow-verify {file} {name}'''
+description = "systemd-analyze verify, for unit files."

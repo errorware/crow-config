@@ -1,0 +1,20 @@
+# /etc/systemd/system/app.service
+[Unit]
+Description=Example app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=app
+ExecStart=/usr/bin/app \
+    --port 8080 \
+    --workers 4
+Restart = on-failure
+RestartSec=5s
+; hardening
+NoNewPrivileges=yes
+Environment=
+
+[Install]
+WantedBy=multi-user.target
