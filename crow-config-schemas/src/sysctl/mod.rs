@@ -10,6 +10,8 @@ use crow_config_core::ir::{ConfigDocumentIr, FieldIr, RowIr, ShapeIr};
 use crow_config_core::schema::{FieldType, PluginManifest};
 use std::sync::LazyLock;
 
+pub mod known;
+
 pub const SYSCTL_MANIFEST_TOML: &str = include_str!("../../plugins/sysctl.toml");
 
 pub static SYSCTL_MANIFEST: LazyLock<PluginManifest> =
@@ -75,7 +77,12 @@ impl ConfigPlugin for SysctlPlugin {
                 Some(p) => key_field.with_error(p),
                 None => key_field.with_validity(true),
             });
-            let value_field = FieldIr::new("value", FieldType::String, serde_json::Value::String(value.to_string()));
+            let mut value_field = FieldIr::new("value", FieldType::String, serde_json::Value::String(value.to_string()));
+            // Well-known parameters say what they do, and offer their values.
+            if let Some(k) = known::known(key) {
+                value_field.help = Some(k.help.to_string());
+                value_field.options = k.options();
+            }
             row.fields.push(if value.is_empty() { value_field.with_error("a value is required") } else { value_field.with_validity(true) });
             rows.push(row);
         }
