@@ -1,0 +1,21 @@
+# global options
+weekly
+rotate 4
+create
+include /etc/logrotate.d
+
+/var/log/nginx/*.log
+/var/log/nginx/extra/*.log
+{
+    daily
+    rotate 14
+    compress
+    missingok
+    postrotate
+        invoke-rc.d nginx rotate >/dev/null 2>&1
+    endscript
+}
+
+/var/log/app.log {
+  size 100M
+}

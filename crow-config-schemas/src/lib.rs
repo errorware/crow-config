@@ -1,5 +1,6 @@
 pub mod fstab;
 pub mod hosts;
+pub mod logrotate;
 pub mod pg_hba;
 pub mod sshd;
 pub mod sudoers;
@@ -7,6 +8,7 @@ pub mod sysctl;
 pub mod ufw;
 
 pub use fstab::{boot_risk as fstab_boot_risk, mounts as fstab_mounts, FstabPlugin, Mount as FstabMount, FSTAB_MANIFEST, FSTAB_MANIFEST_TOML};
+pub use logrotate::{LogrotatePlugin, LOGROTATE_MANIFEST, LOGROTATE_MANIFEST_TOML};
 pub use hosts::{HostsPlugin, HOSTS_MANIFEST, HOSTS_MANIFEST_TOML};
 pub use pg_hba::{PgHbaPlugin, PG_HBA_MANIFEST, PG_HBA_MANIFEST_TOML};
 pub use sshd::{SshdPlugin, SSHD_MANIFEST, SSHD_MANIFEST_TOML};
@@ -28,12 +30,14 @@ mod tests {
     const SAMPLE_SYSCTL: &str = include_str!("../test_data/sysctl_sample.conf");
     const SAMPLE_SUDOERS: &str = include_str!("../test_data/sudoers_sample");
     const SAMPLE_FSTAB: &str = include_str!("../test_data/fstab_sample");
+    const SAMPLE_LOGROTATE: &str = include_str!("../test_data/logrotate_sample");
+    const SAMPLE_LOGROTATE_MARIADB: &str = include_str!("../test_data/logrotate_mariadb");
 
     /// Every shipped manifest is a valid config-format plugin.
     #[test]
     fn shipped_manifests_declare_the_config_format_category() {
         use crow_config_core::{categories, PluginKind};
-        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST] {
+        for m in [&*HOSTS_MANIFEST, &*PG_HBA_MANIFEST, &*SSHD_MANIFEST, &*UFW_MANIFEST, &*SYSCTL_MANIFEST, &*SUDOERS_MANIFEST, &*FSTAB_MANIFEST, &*LOGROTATE_MANIFEST] {
             assert_eq!(m.validate(), Ok(()), "{}", m.plugin.name);
             assert_eq!(m.plugin.kind, PluginKind::Config);
             assert_eq!(m.plugin.category.as_deref(), Some(categories::CONFIG_FORMAT), "{}", m.plugin.name);
@@ -749,4 +753,77 @@ mod tests {
             let _ = doc.to_ir().unwrap();
         }
     }
+
+    // ==========================================
+    // logrotate Tests
+    // ==========================================
+
+    fn logrotate_rows(text: &str) -> Vec<(String, String, String, Option<String>)> {
+        let ir = ConfigDocument::parse(&LogrotatePlugin::new(), text).unwrap().to_ir().unwrap();
+        ir.rows.iter().map(|r| (r.row_id.clone(), r.fields[0].name.clone(), r.fields[0].value.as_str().unwrap().to_string(), r.scope.clone())).collect()
+    }
+
+    #[test]
+    fn logrotate_reads_globals_blocks_and_scripts_and_keeps_every_byte() {
+        let plugin = LogrotatePlugin::new();
+        for sample in [SAMPLE_LOGROTATE, SAMPLE_LOGROTATE_MARIADB] {
+            assert_eq!(ConfigDocument::parse(&plugin, sample).unwrap().serialize(), sample);
+        }
+        let rows = logrotate_rows(SAMPLE_LOGROTATE);
+        let view: Vec<(&str, &str, Option<&str>)> = rows.iter().map(|(_, k, v, s)| (k.as_str(), v.as_str(), s.as_deref())).collect();
+        let nginx = Some("/var/log/nginx/*.log /var/log/nginx/extra/*.log");
+        assert_eq!(
+            view,
+            vec![
+                ("weekly", "on", None),
+                ("rotate", "4", None),
+                ("create", "on", None),
+                ("include", "/etc/logrotate.d", None),
+                ("logs", "/var/log/nginx/*.log /var/log/nginx/extra/*.log", nginx),
+                ("daily", "on", nginx),
+                ("rotate", "14", nginx),
+                ("compress", "on", nginx),
+                ("missingok", "on", nginx),
+                ("postrotate", "invoke-rc.d nginx rotate >/dev/null 2>&1", nginx),
+                ("logs", "/var/log/app.log", Some("/var/log/app.log")),
+                ("size", "100M", Some("/var/log/app.log")),
+            ]
+        );
+        let maria = logrotate_rows(SAMPLE_LOGROTATE_MARIADB);
+        let script = maria.iter().find(|r| r.1 == "postrotate").unwrap();
+        assert!(script.2.starts_with("if test -x /usr/bin/mariadb-admin (+"), "{}", script.2);
+        assert!(maria.iter().all(|r| r.3.as_deref() == Some("/var/log/mariadb/mariadb.log")), "comments inside the block don't end it");
+    }
+
+    #[test]
+    fn logrotate_edits_values_and_paths_and_adds_inside_blocks() {
+        let plugin = LogrotatePlugin::new();
+        let mut doc = ConfigDocument::parse(&plugin, SAMPLE_LOGROTATE).unwrap();
+        let rows = logrotate_rows(SAMPLE_LOGROTATE);
+        let id = |k: &str, v: &str| rows.iter().find(|r| r.1 == k && r.2 == v).unwrap().0.clone();
+        doc.apply_edit(&EditOp::UpdateField { row_id: id("rotate", "14"), field_name: "rotate".into(), new_value: serde_json::json!("30") }).unwrap();
+        doc.apply_edit(&EditOp::UpdateField { row_id: id("logs", "/var/log/app.log"), field_name: "logs".into(), new_value: serde_json::json!("/var/log/app.log /var/log/app-error.log") }).unwrap();
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("notifempty".to_string(), serde_json::json!("on"));
+        doc.apply_edit(&EditOp::InsertRow { after_row_id: Some(id("size", "100M")), fields }).unwrap();
+        let out = doc.serialize();
+        assert!(out.contains("    rotate 30\n"));
+        assert!(out.contains("/var/log/app.log /var/log/app-error.log {\n  size 100M\n    notifempty\n}\n"), "{out}");
+        assert!(doc.apply_edit(&EditOp::UpdateField { row_id: id("compress", "on"), field_name: "compress".into(), new_value: serde_json::json!("yes") }).is_err(), "a flag has no value");
+        assert!(doc.apply_edit(&EditOp::UpdateField { row_id: id("postrotate", "invoke-rc.d nginx rotate >/dev/null 2>&1"), field_name: "postrotate".into(), new_value: serde_json::json!("x") }).is_err(), "scripts: text view");
+        assert!(doc.apply_edit(&EditOp::DeleteRow { row_id: id("logs", "/var/log/nginx/*.log /var/log/nginx/extra/*.log") }).is_err(), "blocks: text view");
+        doc.apply_edit(&EditOp::DeleteRow { row_id: id("compress", "on") }).unwrap();
+        assert!(!doc.serialize().contains("compress"));
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_logrotate_arbitrary_input_never_panics_and_roundtrips(input in "\\PC*") {
+            let plugin = LogrotatePlugin::new();
+            let doc = ConfigDocument::parse(&plugin, &input).unwrap();
+            prop_assert_eq!(doc.serialize(), input.clone());
+            let _ = doc.to_ir().unwrap();
+        }
+    }
 }
+
