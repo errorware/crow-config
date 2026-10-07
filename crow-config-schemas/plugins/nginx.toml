@@ -1,0 +1,13 @@
+[plugin]
+name = "nginx"
+grammar = "nginx-line-grammar"
+category = "config.format"
+
+[shape]
+kind = "key_value_list"
+order_sensitive = true
+order_note = "Order matters for some directives (allow/deny, rewrite); location blocks match by their own rules, not top to bottom."
+
+# nginx -t only tests the installed configuration (a site file means nothing
+# alone), so Crow checks a change by installing it, running nginx -t, and
+# putting the old file back if it fails. No validator here.
