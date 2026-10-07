@@ -20,8 +20,9 @@ type = "string"
 required = true
 help = "Written to /proc/sys as is. Several numbers are separated by spaces or tabs."
 
-# Checks every key exists on this kernel. Values can't be checked without
+# Checks every key exists on this kernel. A key whose first separator is a
+# '/' is a path as is; otherwise dots and slashes swap (sysctl.d(5)). Values can't be checked without
 # applying them, so they aren't. Keys with a leading '-' or a glob are skipped.
 [[validators]]
-command = '''sh -c 'bad=""; while IFS= read -r l || [ -n "$l" ]; do t=$(printf "%s" "$l" | sed "s/^[[:space:]]*//"); case "$t" in "" | \#* | \;* | -*) continue ;; esac; k=$(printf "%s" "${t%%=*}" | sed "s/[[:space:]]*$//"); case "$k" in *\**) continue ;; esac; p=$(printf "%s" "$k" | tr ./ /.); [ -e "/proc/sys/$p" ] || bad="$bad $k"; done < "$1"; [ -z "$bad" ] || { echo "not a kernel parameter here:$bad" >&2; exit 1; }' crow-sysctl {file}'''
+command = '''sh -c 'bad=""; while IFS= read -r l || [ -n "$l" ]; do t=$(printf "%s" "$l" | sed "s/^[[:space:]]*//"); case "$t" in "" | \#* | \;* | -*) continue ;; esac; k=$(printf "%s" "${t%%=*}" | sed "s/[[:space:]]*$//"); case "$k" in *\**) continue ;; esac; s=${k%%[./]*}; case "${k#"$s"}" in /*) p="$k" ;; *) p=$(printf "%s" "$k" | tr ./ /.) ;; esac; [ -e "/proc/sys/$p" ] || bad="$bad $k"; done < "$1"; [ -z "$bad" ] || { echo "not a kernel parameter here:$bad" >&2; exit 1; }' crow-sysctl {file}'''
 description = "Every key is a parameter this kernel has."
